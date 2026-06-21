@@ -1,0 +1,16 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.swp
+*.tmp
+*.log
+
+# Local credentials/state must never be committed.
+.env
+.codex/
+*.pem
+*.key
+*.p12
