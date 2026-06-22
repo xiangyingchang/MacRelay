@@ -18,6 +18,7 @@ let package = Package(
         .executable(name: "MacRelayServiceFixtureProbe", targets: ["MacRelayServiceFixtureProbe"]),
         .executable(name: "MacRelayHTTPServerProbe", targets: ["MacRelayHTTPServerProbe"]),
         .executable(name: "MacRelayWebSocketServerProbe", targets: ["MacRelayWebSocketServerProbe"]),
+        .executable(name: "RelayRuntimeCommandDispatcherProbe", targets: ["RelayRuntimeCommandDispatcherProbe"]),
         .executable(name: "SandboxPayloadProbe", targets: ["SandboxPayloadProbe"]),
         .executable(name: "ThreadStartSchemaProbe", targets: ["ThreadStartSchemaProbe"]),
         .executable(name: "TurnStartSchemaProbe", targets: ["TurnStartSchemaProbe"]),
@@ -61,6 +62,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "MacRelayWebSocketServerProbe",
+            dependencies: ["AgentClientCore"]
+        ),
+        .executableTarget(
+            name: "RelayRuntimeCommandDispatcherProbe",
             dependencies: ["AgentClientCore"]
         ),
         .executableTarget(

@@ -20,7 +20,7 @@ struct PendingRequest {
 // MARK: - CodexRuntimeBridge
 
 @MainActor
-final class CodexRuntimeBridge: ObservableObject {
+final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     @Published private(set) var detection = CodexCLIDetector.detect(includeVersion: false)
     @Published private(set) var statusText = "Codex CLI detection pending"
     @Published private(set) var modelNames: [String] = []
