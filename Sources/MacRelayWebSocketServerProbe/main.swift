@@ -189,7 +189,7 @@ let deviceAuthData = try send(
 )
 let deviceAuthResult = try decoder.decode(RelayEnvelope<[String: String]>.self, from: deviceAuthData)
 try expect(deviceAuthResult.type == "mac-relay.authenticated", "device auth should authenticate")
-try expect(deviceAuthResult.payload["method"] == "device", "device auth method marker")
+try expect(deviceAuthResult.payload["method"] == "device-static", "device auth method marker")
 
 let deviceSnapshotData = try send(
     RelayEnvelope(type: RelayCommandType.snapshotGet.rawValue, payload: [:] as [String: String]),
@@ -197,6 +197,87 @@ let deviceSnapshotData = try send(
 )
 let deviceSnapshot = try decoder.decode(RelayEnvelope<RelaySnapshotPayload>.self, from: deviceSnapshotData)
 try expect(deviceSnapshot.payload.activeSessionID == "thread-ws", "device snapshot session")
+
+// Challenge-response device auth
+let challengeStore = MemoryDeviceTrustStore()
+let challengeDeviceID = "ch-iphone"
+let challengeSecret = "ch-secret-abc"
+try challengeStore.register(DeviceIdentity(deviceID: challengeDeviceID, deviceSecret: challengeSecret, deviceName: "Challenge iPhone"))
+
+let chServer = MacRelayWebSocketServer(relayService: service,
+                                      pairingToken: "ignored",
+                                      deviceTrustStore: challengeStore)
+try chServer.start(port: 0)
+try expect(chServer.waitUntilReady(), "chServer ready")
+let chPort = try chServer.port ?? { throw ProbeError.failed("chServer port") }()
+
+// Step 1: connect and request challenge
+let chTask = connect(to: chPort)
+defer { chTask.cancel(with: .normalClosure, reason: nil) }
+let challengeResp = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": challengeDeviceID] as [String: String]),
+    on: chTask
+)
+let challengeObj = try JSONSerialization.jsonObject(with: challengeResp) as? [String: Any] ?? [:]
+try expect(challengeObj["type"] as? String == "mac-relay.challenge", "should get challenge")
+let nonce = challengeObj["payload"] as? [String: Any] ?? [:]
+let nonceStr = nonce["nonce"] as? String ?? ""
+try expect(!nonceStr.isEmpty, "nonce non-empty")
+
+// Step 2: compute response and authorize
+let response = NonceManager.hash(nonceStr, withSecret: challengeSecret)
+let authResp = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": challengeDeviceID, "challengeResponse": response] as [String: String]),
+    on: chTask
+)
+let authEnv = try decoder.decode(RelayEnvelope<[String: String]>.self, from: authResp)
+try expect(authEnv.type == "mac-relay.authenticated", "challenge auth ok")
+try expect(authEnv.payload["method"] == "device-challenge", "device-challenge method")
+
+// Step 3: wrong response is rejected
+let wrongTask = connect(to: chPort)
+defer { wrongTask.cancel(with: .normalClosure, reason: nil) }
+_ = try send(  // get challenge
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": challengeDeviceID] as [String: String]),
+    on: wrongTask
+)
+let wrongAuth = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": challengeDeviceID, "challengeResponse": "bad-response"] as [String: String]),
+    on: wrongTask
+)
+let wrongEnv = try decoder.decode(RelayEnvelope<[String: String]>.self, from: wrongAuth)
+try expect(wrongEnv.type == RelayEventType.error.rawValue, "wrong challenge response error")
+
+// Step 4: replay is rejected (same nonce twice)
+let replayTask = connect(to: chPort)
+defer { replayTask.cancel(with: .normalClosure, reason: nil) }
+let replayChallengeResp = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": challengeDeviceID] as [String: String]),
+    on: replayTask
+)
+let replayChallengeObj = try JSONSerialization.jsonObject(with: replayChallengeResp) as? [String: Any] ?? [:]
+let replayNonce = (replayChallengeObj["payload"] as? [String: Any])?["nonce"] as? String ?? ""
+try expect(!replayNonce.isEmpty, "replay nonce")
+
+// First use is ok
+let replayAuthOk = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": challengeDeviceID, "challengeResponse": NonceManager.hash(replayNonce, withSecret: challengeSecret)] as [String: String]),
+    on: replayTask
+)
+let replayOkEnv = try decoder.decode(RelayEnvelope<[String: String]>.self, from: replayAuthOk)
+try expect(replayOkEnv.type == "mac-relay.authenticated", "first use ok")
+
+// Replay same nonce on new connection
+let replayTask2 = connect(to: chPort)
+defer { replayTask2.cancel(with: .normalClosure, reason: nil) }
+let replayAuthBad = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": challengeDeviceID, "challengeResponse": NonceManager.hash(replayNonce, withSecret: challengeSecret)] as [String: String]),
+    on: replayTask2
+)
+let replayBadEnv = try decoder.decode(RelayEnvelope<[String: String]>.self, from: replayAuthBad)
+try expect(replayBadEnv.type == RelayEventType.error.rawValue, "replay nonce rejected")
+
+chServer.stop()
 
 // Revoke device
 try trustStore.revoke(deviceID: deviceID)

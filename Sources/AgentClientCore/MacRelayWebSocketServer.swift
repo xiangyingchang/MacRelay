@@ -10,6 +10,7 @@ public final class MacRelayWebSocketServer {
     private let relayService: MacRelayService
     private let pairingToken: String?
     private let deviceTrustStore: DeviceTrustStore?
+    private let nonceManager = NonceManager()
     private let queue: DispatchQueue
     private var listener: NWListener?
     private var connections: [NWConnection] = []
@@ -166,16 +167,40 @@ public final class MacRelayWebSocketServer {
 
             let payload = object["payload"] as? [String: Any] ?? [:]
 
-            // Try device credential first
+            // Device credential auth — challenge-response
             if let deviceID = payload["deviceId"] as? String,
-               let deviceSecret = payload["deviceSecret"] as? String,
-               let store = deviceTrustStore,
-               store.isTrusted(deviceID: deviceID, deviceSecret: deviceSecret) {
-                connectionAuthenticated[ObjectIdentifier(connection)] = true
-                return try encode(RelayEnvelope(
-                    type: "mac-relay.authenticated",
-                    payload: ["status": "ok", "method": "device"] as [String: String]
-                ))
+               let store = deviceTrustStore {
+                // Challenge-response: client sends response to server-issued nonce
+                if let challengeResponse = payload["challengeResponse"] as? String {
+                    // Find device secret from trust store and verify
+                    let device = store.list().first(where: { $0.deviceID == deviceID })
+                    if let device, nonceManager.verify(deviceID: deviceID, secret: device.deviceSecret, challengeResponse: challengeResponse) {
+                        connectionAuthenticated[ObjectIdentifier(connection)] = true
+                        return try encode(RelayEnvelope(
+                            type: "mac-relay.authenticated",
+                            payload: ["status": "ok", "method": "device-challenge"] as [String: String]
+                        ))
+                    }
+                }
+
+                // Client sent deviceId without challengeResponse — issue challenge
+                if payload["challengeResponse"] == nil && payload["deviceSecret"] == nil {
+                    let challenge = nonceManager.issueNonce(deviceID: deviceID)
+                    return try encode(RelayEnvelope(
+                        type: "mac-relay.challenge",
+                        payload: ["nonce": challenge.nonce, "deviceId": challenge.deviceID] as [String: String]
+                    ))
+                }
+
+                // Legacy static secret fallback
+                if let deviceSecret = payload["deviceSecret"] as? String,
+                   store.isTrusted(deviceID: deviceID, deviceSecret: deviceSecret) {
+                    connectionAuthenticated[ObjectIdentifier(connection)] = true
+                    return try encode(RelayEnvelope(
+                        type: "mac-relay.authenticated",
+                        payload: ["status": "ok", "method": "device-static"] as [String: String]
+                    ))
+                }
             }
 
             // Fall back to pairing token
