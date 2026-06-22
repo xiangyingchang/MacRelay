@@ -192,6 +192,11 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
 struct RelayCommandLiveProbe {
     @MainActor
     static func main() throws {
+        guard ProcessInfo.processInfo.environment["MACRELAY_RUN_LIVE_CODEX"] == "1" else {
+            print("RelayCommandLiveProbe skipped (set MACRELAY_RUN_LIVE_CODEX=1 to run)")
+            exit(0)
+        }
+
         let cwd = CommandLine.arguments.dropFirst().first ?? FileManager.default.currentDirectoryPath
         let detection = CodexCLIDetector.detect()
         guard detection.isInstalled, let codexPath = detection.executablePath else {
