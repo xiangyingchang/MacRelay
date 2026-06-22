@@ -217,7 +217,7 @@ public final class MacRelayWebSocketServer {
             guard sentToken == token else {
                 let errorPayload = try encode(RelayEnvelope(
                     type: RelayEventType.error.rawValue,
-                    payload: ["error": "invalid pairing token or device credential"] as [String: String]
+                    payload: ["error": "invalid pairing token or device credential", "code": RelayErrorCode.authInvalid.code] as [String: String]
                 ))
                 cancelAfterSend(errorPayload, connection: connection)
                 return errorPayload
@@ -272,7 +272,7 @@ public final class MacRelayWebSocketServer {
                 let connection = ConnectionSnapshotPayload(isPaired: true, isOnline: true, lastSeenSeq: relayService.newestSeq)
                 return try encode(RelayEnvelope(type: RelayEventType.heartbeat.rawValue, correlationID: id, payload: connection))
             default:
-                return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "unsupported command"] as [String: String]))
+                return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "unsupported command", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
             }
         } catch {
             return (try? encode(RelayEnvelope(type: RelayEventType.error.rawValue, payload: ["error": "\(error)"] as [String: String]))) ?? Data()

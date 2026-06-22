@@ -192,7 +192,7 @@ public final class MacRelayHTTPServer {
         }
 
         guard isAuthorized(request: request, path: path) else {
-            return makeResponse(status: "401 Unauthorized", body: ["error": "missing, expired, or invalid pairing token"])
+            return makeResponse(status: "401 Unauthorized", body: ["error": "missing, expired, or invalid pairing token", "code": isTokenExpired ? RelayErrorCode.authExpired.code : RelayErrorCode.authMissing.code])
         }
 
         if path.hasPrefix("/snapshot") {
@@ -211,13 +211,13 @@ public final class MacRelayHTTPServer {
 
     private func claimPairing(path: String) -> Data {
         guard !isTokenExpired else {
-            return makeResponse(status: "401 Unauthorized", body: ["error": "pairing token expired"])
+            return makeResponse(status: "401 Unauthorized", body: ["error": "pairing token expired", "code": RelayErrorCode.claimExpired.code])
         }
         guard pairingClaimedAt == nil else {
-            return makeResponse(status: "409 Conflict", body: ["error": "pairing claim already used"])
+            return makeResponse(status: "409 Conflict", body: ["error": "pairing claim already used", "code": RelayErrorCode.claimAlreadyUsed.code])
         }
         guard Self.queryValue("claim", in: path) == pairingClaim else {
-            return makeResponse(status: "401 Unauthorized", body: ["error": "missing or invalid pairing claim"])
+            return makeResponse(status: "401 Unauthorized", body: ["error": "missing or invalid pairing claim", "code": RelayErrorCode.authInvalid.code])
         }
         pairingClaimedAt = Date()
         guard let pairingPayload else {
