@@ -3,24 +3,33 @@ import Network
 
 /// Local relay WebSocket server for iPhone handoff.
 ///
-/// The transport is a real WebSocket listener built on Network.framework; the
-/// command semantics stay isolated in `handleMessage(_:)` so probes and future
-/// transports can reuse the same snapshot/replay/heartbeat dispatch path.
+/// Supports per-connection pairing-token auth. The first message on every
+/// connection must be a `mac-relay.authorize` envelope with a valid token.
+/// Unauthenticated connections are sent an error and closed.
 public final class MacRelayWebSocketServer {
     private let relayService: MacRelayService
+    private let pairingToken: String?
     private let queue: DispatchQueue
     private var listener: NWListener?
     private var connections: [NWConnection] = []
+    private var connectionAuthenticated: [ObjectIdentifier: Bool] = [:]
     private var readySemaphore: DispatchSemaphore?
     private var failedStartError: NWError?
 
-    public init(relayService: MacRelayService, queue: DispatchQueue = DispatchQueue(label: "MacRelayWebSocketServer")) {
+    public init(relayService: MacRelayService,
+                pairingToken: String? = nil,
+                queue: DispatchQueue = DispatchQueue(label: "MacRelayWebSocketServer")) {
         self.relayService = relayService
+        self.pairingToken = pairingToken
         self.queue = queue
     }
 
     public var port: UInt16? {
         listener?.port?.rawValue
+    }
+
+    public var isAuthEnabled: Bool {
+        pairingToken != nil
     }
 
     public func start(host: String = "127.0.0.1", port: UInt16 = 0) throws {
@@ -65,6 +74,7 @@ public final class MacRelayWebSocketServer {
     }
 
     public func stop() {
+        connectionAuthenticated.removeAll()
         connections.forEach { $0.cancel() }
         connections.removeAll()
         listener?.cancel()
@@ -75,12 +85,14 @@ public final class MacRelayWebSocketServer {
 
     private func handle(_ connection: NWConnection) {
         connections.append(connection)
+        connectionAuthenticated[ObjectIdentifier(connection)] = !isAuthEnabled
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             guard let self, let connection else { return }
             switch state {
             case .ready:
                 self.receive(on: connection)
             case .cancelled, .failed:
+                self.connectionAuthenticated.removeValue(forKey: ObjectIdentifier(connection))
                 self.connections.removeAll { $0 === connection }
             default:
                 break
@@ -102,32 +114,101 @@ public final class MacRelayWebSocketServer {
         connection: NWConnection
     ) {
         if error != nil {
-            connection.cancel()
+            cancel(connection)
             return
         }
 
+        let textData: Data?
         if let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata {
             switch metadata.opcode {
             case .text, .binary:
-                if let data, !data.isEmpty {
-                    send(handleMessage(data), on: connection)
-                }
+                textData = data
             case .close:
-                connection.cancel()
+                cancel(connection)
                 return
             default:
-                break
+                textData = nil
             }
-        } else if let data, !data.isEmpty {
-            // Defensive fallback for tests or future transports that call into
-            // this connection path without WebSocket metadata.
-            send(handleMessage(data), on: connection)
+        } else {
+            textData = data
         }
 
+        guard let textData, !textData.isEmpty else {
+            receive(on: connection)
+            return
+        }
+
+        if !(connectionAuthenticated[ObjectIdentifier(connection)] ?? false) {
+            let authResponse = handleAuthorize(textData, connection: connection)
+            send(authResponse, on: connection)
+            receive(on: connection)
+            return
+        }
+
+        send(handleRelayCommand(textData), on: connection)
         receive(on: connection)
     }
 
-    public func handleMessage(_ data: Data) -> Data {
+    private func handleAuthorize(_ data: Data, connection: NWConnection) -> Data {
+        do {
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["type"] as? String == "mac-relay.authorize" else {
+                let errorPayload = try encode(RelayEnvelope(
+                    type: RelayEventType.error.rawValue,
+                    payload: ["error": "first message must be mac-relay.authorize"] as [String: String]
+                ))
+                cancelAfterSend(errorPayload, connection: connection)
+                return errorPayload
+            }
+
+            guard let token = pairingToken else {
+                let errorPayload = try encode(RelayEnvelope(
+                    type: RelayEventType.error.rawValue,
+                    payload: ["error": "auth disabled on server"] as [String: String]
+                ))
+                cancelAfterSend(errorPayload, connection: connection)
+                return errorPayload
+            }
+
+            let payload = object["payload"] as? [String: Any]
+            let sentToken = payload?["token"] as? String ?? ""
+
+            guard sentToken == token else {
+                let errorPayload = try encode(RelayEnvelope(
+                    type: RelayEventType.error.rawValue,
+                    payload: ["error": "invalid pairing token"] as [String: String]
+                ))
+                cancelAfterSend(errorPayload, connection: connection)
+                return errorPayload
+            }
+
+            connectionAuthenticated[ObjectIdentifier(connection)] = true
+            return try encode(RelayEnvelope(
+                type: "mac-relay.authenticated",
+                payload: ["status": "ok"] as [String: String]
+            ))
+        } catch {
+            return Data()
+        }
+    }
+
+    /// Exposed for probes: validate auth without connection lifecycle.
+    public func handleAuthorize(_ data: Data) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "mac-relay.authorize",
+              let token = pairingToken,
+              let payload = object["payload"] as? [String: Any],
+              payload["token"] as? String == token else {
+            return nil
+        }
+        return try? encode(RelayEnvelope(
+            type: "mac-relay.authenticated",
+            payload: ["status": "ok"] as [String: String]
+        ))
+    }
+
+    /// Transport-independent relay command dispatch.
+    public func handleRelayCommand(_ data: Data) -> Data {
         do {
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let type = object["type"] as? String else {
@@ -168,8 +249,22 @@ public final class MacRelayWebSocketServer {
         let context = NWConnection.ContentContext(identifier: "mac-relay-json", metadata: [metadata])
         connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { error in
             if error != nil {
-                connection.cancel()
+                self.cancel(connection)
             }
         })
+    }
+
+    private func cancelAfterSend(_ data: Data, connection: NWConnection) {
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+        let context = NWConnection.ContentContext(identifier: "mac-relay-json", metadata: [metadata])
+        connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { _ in
+            self.cancel(connection)
+        })
+    }
+
+    private func cancel(_ connection: NWConnection) {
+        connectionAuthenticated.removeValue(forKey: ObjectIdentifier(connection))
+        connections.removeAll { $0 === connection }
+        connection.cancel()
     }
 }
