@@ -9,6 +9,7 @@ import Network
 public final class MacRelayWebSocketServer {
     private let relayService: MacRelayService
     private let pairingToken: String?
+    private let deviceTrustStore: DeviceTrustStore?
     private let queue: DispatchQueue
     private var listener: NWListener?
     private var connections: [NWConnection] = []
@@ -18,9 +19,11 @@ public final class MacRelayWebSocketServer {
 
     public init(relayService: MacRelayService,
                 pairingToken: String? = nil,
+                deviceTrustStore: DeviceTrustStore? = nil,
                 queue: DispatchQueue = DispatchQueue(label: "MacRelayWebSocketServer")) {
         self.relayService = relayService
         self.pairingToken = pairingToken
+        self.deviceTrustStore = deviceTrustStore
         self.queue = queue
     }
 
@@ -161,6 +164,21 @@ public final class MacRelayWebSocketServer {
                 return errorPayload
             }
 
+            let payload = object["payload"] as? [String: Any] ?? [:]
+
+            // Try device credential first
+            if let deviceID = payload["deviceId"] as? String,
+               let deviceSecret = payload["deviceSecret"] as? String,
+               let store = deviceTrustStore,
+               store.isTrusted(deviceID: deviceID, deviceSecret: deviceSecret) {
+                connectionAuthenticated[ObjectIdentifier(connection)] = true
+                return try encode(RelayEnvelope(
+                    type: "mac-relay.authenticated",
+                    payload: ["status": "ok", "method": "device"] as [String: String]
+                ))
+            }
+
+            // Fall back to pairing token
             guard let token = pairingToken else {
                 let errorPayload = try encode(RelayEnvelope(
                     type: RelayEventType.error.rawValue,
@@ -170,13 +188,11 @@ public final class MacRelayWebSocketServer {
                 return errorPayload
             }
 
-            let payload = object["payload"] as? [String: Any]
-            let sentToken = payload?["token"] as? String ?? ""
-
+            let sentToken = payload["token"] as? String ?? ""
             guard sentToken == token else {
                 let errorPayload = try encode(RelayEnvelope(
                     type: RelayEventType.error.rawValue,
-                    payload: ["error": "invalid pairing token"] as [String: String]
+                    payload: ["error": "invalid pairing token or device credential"] as [String: String]
                 ))
                 cancelAfterSend(errorPayload, connection: connection)
                 return errorPayload
@@ -185,7 +201,7 @@ public final class MacRelayWebSocketServer {
             connectionAuthenticated[ObjectIdentifier(connection)] = true
             return try encode(RelayEnvelope(
                 type: "mac-relay.authenticated",
-                payload: ["status": "ok"] as [String: String]
+                payload: ["status": "ok", "method": "token"] as [String: String]
             ))
         } catch {
             return Data()

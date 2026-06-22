@@ -124,7 +124,7 @@ defer { badTask.cancel(with: .normalClosure, reason: nil) }
 let badAuthResponse = try readAuthResponse(on: badTask)
 try expect(badAuthResponse["type"] as? String == RelayEventType.error.rawValue, "wrong token should return error")
 try expect(badAuthResponse["payload"] as? [String: String] != nil, "wrong token error should have payload")
-try expect((badAuthResponse["payload"] as? [String: String])?["error"] == "invalid pairing token", "wrong token error mismatch")
+try expect((badAuthResponse["payload"] as? [String: String])?["error"]?.contains("invalid") == true, "wrong token error mismatch")
 
 // Scenario 3: correct token, then normal snapshot/replay/heartbeat
 let goodTask = connect(to: boundPort)
@@ -160,6 +160,56 @@ try expect(heartbeat.type == RelayEventType.heartbeat.rawValue, "heartbeat type 
 try expect(heartbeat.payload.isOnline, "heartbeat should be online")
 try expect(heartbeat.payload.lastSeenSeq == service.newestSeq, "heartbeat seq mismatch")
 
+// Scenario 4: device credential auth
+let trustStore = MemoryDeviceTrustStore()
+let deviceID = "iphone-sim-1"
+let deviceSecret = "dev-secret-xyz"
+try trustStore.register(DeviceIdentity(deviceID: deviceID, deviceSecret: deviceSecret, deviceName: "Simulator"))
+
+let deviceServer = MacRelayWebSocketServer(relayService: service,
+                                          pairingToken: "ignored-token",
+                                          deviceTrustStore: trustStore)
+try deviceServer.start(port: 0)
+try expect(deviceServer.waitUntilReady(), "deviceServer should become ready")
+let devicePort = try deviceServer.port ?? { throw ProbeError.failed("deviceServer port") }()
+
+let deviceTask = connect(to: devicePort)
+defer { deviceTask.cancel(with: .normalClosure, reason: nil) }
+
+// Wrong device secret -> rejected
+let wrongDeviceAuth = try readAuthResponse(on: deviceTask)
+try expect(wrongDeviceAuth["type"] as? String == RelayEventType.error.rawValue, "wrong device auth error")
+
+// Correct device auth on new task
+let deviceTask2 = connect(to: devicePort)
+defer { deviceTask2.cancel(with: .normalClosure, reason: nil) }
+let deviceAuthData = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": deviceID, "deviceSecret": deviceSecret] as [String: String]),
+    on: deviceTask2
+)
+let deviceAuthResult = try decoder.decode(RelayEnvelope<[String: String]>.self, from: deviceAuthData)
+try expect(deviceAuthResult.type == "mac-relay.authenticated", "device auth should authenticate")
+try expect(deviceAuthResult.payload["method"] == "device", "device auth method marker")
+
+let deviceSnapshotData = try send(
+    RelayEnvelope(type: RelayCommandType.snapshotGet.rawValue, payload: [:] as [String: String]),
+    on: deviceTask2
+)
+let deviceSnapshot = try decoder.decode(RelayEnvelope<RelaySnapshotPayload>.self, from: deviceSnapshotData)
+try expect(deviceSnapshot.payload.activeSessionID == "thread-ws", "device snapshot session")
+
+// Revoke device
+try trustStore.revoke(deviceID: deviceID)
+let revokedTask = connect(to: devicePort)
+defer { revokedTask.cancel(with: .normalClosure, reason: nil) }
+let revokedAuthData = try send(
+    RelayEnvelope(type: "mac-relay.authorize", payload: ["deviceId": deviceID, "deviceSecret": deviceSecret] as [String: String]),
+    on: revokedTask
+)
+let revokedResult = try decoder.decode(RelayEnvelope<[String: String]>.self, from: revokedAuthData)
+try expect(revokedResult.type == RelayEventType.error.rawValue, "revoked device should be rejected")
+
+deviceServer.stop()
 server.stop()
 
 print("MacRelayWebSocketServerProbe passed auth=tested standardWebSocket=true port=\(boundPort) seq=\(service.newestSeq) replayEvents=\(replay.payload.events.count)")

@@ -22,6 +22,7 @@ let package = Package(
         .executable(name: "RelayCommandLiveProbe", targets: ["RelayCommandLiveProbe"]),
         .executable(name: "PairingCredentialStoreFixtureProbe", targets: ["PairingCredentialStoreFixtureProbe"]),
         .executable(name: "KeychainPairingCredentialStoreProbe", targets: ["KeychainPairingCredentialStoreProbe"]),
+        .executable(name: "DeviceTrustStoreProbe", targets: ["DeviceTrustStoreProbe"]),
         .executable(name: "SandboxPayloadProbe", targets: ["SandboxPayloadProbe"]),
         .executable(name: "ThreadStartSchemaProbe", targets: ["ThreadStartSchemaProbe"]),
         .executable(name: "TurnStartSchemaProbe", targets: ["TurnStartSchemaProbe"]),
@@ -81,6 +82,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "KeychainPairingCredentialStoreProbe",
+            dependencies: ["AgentClientCore"]
+        ),
+        .executableTarget(
+            name: "DeviceTrustStoreProbe",
             dependencies: ["AgentClientCore"]
         ),
         .executableTarget(

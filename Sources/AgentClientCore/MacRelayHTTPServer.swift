@@ -28,6 +28,8 @@ public struct RelayPairingPayload: Codable, Equatable {
     public let protocolVersion: Int
     public let expiresAt: Date
     public let claimedAt: Date?
+    public let deviceID: String?
+    public let deviceSecret: String?
 
     public init(
         host: String,
@@ -36,7 +38,9 @@ public struct RelayPairingPayload: Codable, Equatable {
         claim: String,
         protocolVersion: Int = RelayProtocolVersion.current,
         expiresAt: Date,
-        claimedAt: Date? = nil
+        claimedAt: Date? = nil,
+        deviceID: String? = nil,
+        deviceSecret: String? = nil
     ) {
         self.host = host
         self.port = port
@@ -45,6 +49,8 @@ public struct RelayPairingPayload: Codable, Equatable {
         self.protocolVersion = protocolVersion
         self.expiresAt = expiresAt
         self.claimedAt = claimedAt
+        self.deviceID = deviceID
+        self.deviceSecret = deviceSecret
     }
 }
 
@@ -114,7 +120,9 @@ public final class MacRelayHTTPServer {
             token: pairingToken,
             claim: pairingClaim,
             expiresAt: pairingExpiresAt,
-            claimedAt: pairingClaimedAt
+            claimedAt: pairingClaimedAt,
+            deviceID: (credentialStore as? KeychainPairingCredentialStore)?.deviceID,
+            deviceSecret: (credentialStore as? KeychainPairingCredentialStore)?.deviceSecret
         )
     }
 
