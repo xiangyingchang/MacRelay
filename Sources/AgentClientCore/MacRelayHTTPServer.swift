@@ -57,6 +57,7 @@ public final class MacRelayHTTPServer {
     private let relayService: MacRelayService
     private let queue: DispatchQueue
     private let tokenTTL: TimeInterval
+    private let credentialStore: PairingCredentialStore
     private var listener: NWListener?
     private var host: String = "127.0.0.1"
     private var pairingToken: String
@@ -69,14 +70,23 @@ public final class MacRelayHTTPServer {
         queue: DispatchQueue = DispatchQueue(label: "MacRelayHTTPServer"),
         pairingToken: String = MacRelayHTTPServer.generatePairingToken(),
         pairingClaim: String = MacRelayHTTPServer.generatePairingToken(),
-        tokenTTL: TimeInterval = 10 * 60
+        tokenTTL: TimeInterval = 10 * 60,
+        credentialStore: PairingCredentialStore? = nil
     ) {
         self.relayService = relayService
         self.queue = queue
-        self.pairingToken = pairingToken
-        self.pairingClaim = pairingClaim
+        self.pairingToken = credentialStore?.token ?? pairingToken
+        self.pairingClaim = credentialStore?.claim ?? pairingClaim
         self.tokenTTL = tokenTTL
-        self.pairingExpiresAt = Date().addingTimeInterval(tokenTTL)
+        self.pairingExpiresAt = credentialStore?.expiresAt ?? Date().addingTimeInterval(tokenTTL)
+        self.credentialStore = credentialStore ?? MemoryPairingCredentialStore()
+        if credentialStore == nil {
+            try? self.credentialStore.store(token: self.pairingToken, claim: self.pairingClaim, expiresAt: self.pairingExpiresAt)
+        }
+    }
+
+    public var store: PairingCredentialStore {
+        credentialStore
     }
 
     public var port: UInt16? {
@@ -113,6 +123,9 @@ public final class MacRelayHTTPServer {
         pairingClaim = Self.generatePairingToken()
         pairingExpiresAt = Date().addingTimeInterval(tokenTTL)
         pairingClaimedAt = nil
+        try? credentialStore.store(token: pairingToken, claim: pairingClaim, expiresAt: pairingExpiresAt)
+        try? credentialStore.revoke() // clear old
+        try? credentialStore.store(token: pairingToken, claim: pairingClaim, expiresAt: pairingExpiresAt)
     }
 
     public func start(host: String = "127.0.0.1", port: UInt16 = 0) throws {
