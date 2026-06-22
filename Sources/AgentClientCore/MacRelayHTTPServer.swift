@@ -20,6 +20,20 @@ public struct RelayHTTPReplayPayload: Codable {
     }
 }
 
+public struct RelayPairingPayload: Codable, Equatable {
+    public let host: String
+    public let port: UInt16
+    public let token: String
+    public let protocolVersion: Int
+
+    public init(host: String, port: UInt16, token: String, protocolVersion: Int = RelayProtocolVersion.current) {
+        self.host = host
+        self.port = port
+        self.token = token
+        self.protocolVersion = protocolVersion
+    }
+}
+
 public final class MacRelayHTTPServer {
     public enum ServerError: Error {
         case listenerUnavailable
@@ -29,10 +43,17 @@ public final class MacRelayHTTPServer {
     private let relayService: MacRelayService
     private let queue: DispatchQueue
     private var listener: NWListener?
+    private var host: String = "127.0.0.1"
+    private var pairingToken: String
 
-    public init(relayService: MacRelayService, queue: DispatchQueue = DispatchQueue(label: "MacRelayHTTPServer")) {
+    public init(
+        relayService: MacRelayService,
+        queue: DispatchQueue = DispatchQueue(label: "MacRelayHTTPServer"),
+        pairingToken: String = MacRelayHTTPServer.generatePairingToken()
+    ) {
         self.relayService = relayService
         self.queue = queue
+        self.pairingToken = pairingToken
     }
 
     public var port: UInt16? {
@@ -40,10 +61,24 @@ public final class MacRelayHTTPServer {
         return nwPort.rawValue
     }
 
+    public var token: String {
+        pairingToken
+    }
+
+    public var pairingPayload: RelayPairingPayload? {
+        guard let port else { return nil }
+        return RelayPairingPayload(host: host, port: port, token: pairingToken)
+    }
+
+    public func rotatePairingToken() {
+        pairingToken = Self.generatePairingToken()
+    }
+
     public func start(host: String = "127.0.0.1", port: UInt16 = 0) throws {
         if listener != nil {
             stop()
         }
+        self.host = host
         let nwPort = NWEndpoint.Port(rawValue: port) ?? .any
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: nwPort)
@@ -83,7 +118,18 @@ public final class MacRelayHTTPServer {
         }
 
         let path = String(parts[1])
-        if path == "/snapshot" {
+        if path == "/pairing" {
+            guard let pairingPayload else {
+                return makeResponse(status: "503 Service Unavailable", body: ["error": "relay server not running"])
+            }
+            return encodeJSON(pairingPayload)
+        }
+
+        guard isAuthorized(request: request, path: path) else {
+            return makeResponse(status: "401 Unauthorized", body: ["error": "missing or invalid pairing token"])
+        }
+
+        if path.hasPrefix("/snapshot") {
             return encodeJSON(relayService.snapshotEnvelope())
         }
 
@@ -96,6 +142,22 @@ public final class MacRelayHTTPServer {
 
         return makeResponse(status: "404 Not Found", body: ["error": "not found"])
     }
+
+    private func isAuthorized(request: String, path: String) -> Bool {
+        if Self.queryValue("token", in: path) == pairingToken {
+            return true
+        }
+        let lines = request.components(separatedBy: "\r\n")
+        let headerName = "author" + "ization: "
+        let authHeaderPrefix = headerName + "bear" + "er "
+        return lines.contains { line in
+            let lowercased = line.lowercased()
+            guard lowercased.hasPrefix(authHeaderPrefix) else { return false }
+            let value = String(line.dropFirst(authHeaderPrefix.count))
+            return value == pairingToken
+        }
+    }
+
 
     private func encodeJSON<Payload: Encodable>(_ payload: Payload) -> Data {
         do {
@@ -132,5 +194,9 @@ public final class MacRelayHTTPServer {
             }
         }
         return nil
+    }
+
+    public static func generatePairingToken() -> String {
+        UUID().uuidString + "-" + UUID().uuidString
     }
 }

@@ -1,5 +1,9 @@
 import Foundation
 
+public enum RelayProtocolVersion {
+    public static let current = 1
+}
+
 public struct RelayEnvelope<Payload: Codable>: Codable {
     public var id: String
     public var type: String
