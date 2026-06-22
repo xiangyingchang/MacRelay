@@ -106,13 +106,25 @@ struct Inspector: View {
             InspectorSection(title: "Mac Relay") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        StatusPill(text: "Local", tone: .accent)
-                        StatusPill(text: "Seq \(viewModel.relaySnapshot.lastEventSeq)", tone: .success)
+                        StatusPill(
+                            text: viewModel.relayServerRunning ? "Running" : "Stopped",
+                            tone: viewModel.relayServerRunning ? .success : .warning
+                        )
+                        if viewModel.relayServerRunning {
+                            StatusPill(text: "\(viewModel.relayServerHost):\(viewModel.relayServerPort)", tone: .accent)
+                        }
                         Spacer()
-                        Text("\(viewModel.relayEventCount) events")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(Theme.textMuted)
+                        StatusPill(text: "Seq \(viewModel.relaySnapshot.lastEventSeq)", tone: .success)
                     }
+                    if let error = viewModel.relayServerLastError {
+                        Text("Error: \(error)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Theme.error)
+                            .lineLimit(2)
+                    }
+                    KeyValue("Host", viewModel.relayServerHost)
+                    KeyValue("Port", viewModel.relayServerRunning ? "\(viewModel.relayServerPort)" : "-")
+                    KeyValue("Auto-start", viewModel.relayServerConfiguredToStart ? "Enabled" : "Disabled")
                     KeyValue("Session", viewModel.relaySnapshot.activeSessionID ?? "-")
                     KeyValue("Status", viewModel.relaySnapshot.session?.status ?? "-")
                     KeyValue("Pending", "\(viewModel.relaySnapshot.pendingApprovals.filter(\.isPending).count)")
@@ -121,6 +133,11 @@ struct Inspector: View {
                         .foregroundStyle(Theme.textSecondary)
                         .lineLimit(1)
                     HStack {
+                        if viewModel.relayServerRunning {
+                            FileActionButton(title: "Stop", systemName: "stop", role: .destructive, action: viewModel.stopRelayServer)
+                        } else {
+                            FileActionButton(title: "Start", systemName: "play", action: { viewModel.startRelayServer() })
+                        }
                         FileActionButton(title: "Snapshot", systemName: "arrow.clockwise", action: viewModel.requestRelaySnapshot)
                         Spacer()
                     }

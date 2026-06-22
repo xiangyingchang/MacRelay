@@ -40,9 +40,14 @@ public final class MacRelayHTTPServer {
         return nwPort.rawValue
     }
 
-    public func start(host: NWEndpoint.Host = "127.0.0.1", port: UInt16 = 0) throws {
+    public func start(host: String = "127.0.0.1", port: UInt16 = 0) throws {
+        if listener != nil {
+            stop()
+        }
         let nwPort = NWEndpoint.Port(rawValue: port) ?? .any
-        let listener = try NWListener(using: .tcp, on: nwPort)
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: nwPort)
+        let listener = try NWListener(using: parameters)
         listener.newConnectionHandler = { [weak self] connection in
             self?.handle(connection)
         }

@@ -34,6 +34,13 @@ final class MacShellViewModel: ObservableObject {
     )
     @Published private(set) var relayEventCount = 0
     @Published private(set) var relayStatusText = "Relay idle"
+    @Published private(set) var relayServerRunning = false
+    @Published private(set) var relayServerPort: UInt16 = 0
+    @Published private(set) var relayServerLastError: String?
+    @Published private(set) var relayServerConfiguredToStart: Bool
+    let relayServerHost = "127.0.0.1"
+    private let relayServerConfigKey = "MacRelayHTTPServerEnabled"
+    private lazy var relayHTTPServer = MacRelayHTTPServer(relayService: relayService)
     @Published var runtimeMode: RuntimeMode = .mock
     @Published var activeRunID = "run-polish"
     @Published var activeNav = "Codex"
@@ -224,7 +231,12 @@ final class MacShellViewModel: ObservableObject {
         let initial = MockSnapshotFactory.makeRelaySnapshot()
         self.snapshot = initial
         self.selectedModel = initial.session?.model ?? "gpt-5.5"
+        self.relayServerConfiguredToStart = UserDefaults.standard.bool(forKey: relayServerConfigKey)
         self.relaySnapshot = relayService.snapshotEnvelope().payload
+
+        if relayServerConfiguredToStart {
+            startRelayServer(persistConfiguration: false)
+        }
 
         // Forward runtime objectWillChange so SwiftUI redraws when bridge changes
         runtime.objectWillChange.sink { [weak self] _ in
@@ -371,6 +383,39 @@ final class MacShellViewModel: ObservableObject {
         relayEventCount = relayService.eventCount
         relayStatusText = "snapshot.get seq=\(relaySnapshot.lastEventSeq)"
         record(.snapshotGet, "snapshot.get seq=\(relaySnapshot.lastEventSeq)")
+    }
+
+    func startRelayServer(persistConfiguration: Bool = true) {
+        relayServerLastError = nil
+        do {
+            try relayHTTPServer.start(host: relayServerHost, port: 0)
+            relayServerRunning = true
+            relayServerPort = relayHTTPServer.port ?? 0
+            relayServerConfiguredToStart = true
+            if persistConfiguration {
+                UserDefaults.standard.set(true, forKey: relayServerConfigKey)
+            }
+            relayStatusText = "Relay running on \(relayServerHost):\(relayServerPort)"
+            record(.sessionStart, "relay.start host=\(relayServerHost) port=\(relayServerPort)")
+        } catch {
+            relayServerLastError = "\(error)"
+            relayServerRunning = false
+            relayServerConfiguredToStart = false
+            relayStatusText = "Relay error: \(error)"
+            if persistConfiguration {
+                UserDefaults.standard.set(false, forKey: relayServerConfigKey)
+            }
+        }
+    }
+
+    func stopRelayServer() {
+        relayHTTPServer.stop()
+        relayServerRunning = false
+        relayServerPort = 0
+        relayServerConfiguredToStart = false
+        UserDefaults.standard.set(false, forKey: relayServerConfigKey)
+        relayStatusText = "Relay stopped"
+        record(.sessionStop, "relay.stop")
     }
 
     // MARK: - Mock sendDraft
