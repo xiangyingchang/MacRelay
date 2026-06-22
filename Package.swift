@@ -25,6 +25,7 @@ let package = Package(
         .executable(name: "DeviceTrustStoreProbe", targets: ["DeviceTrustStoreProbe"]),
         .executable(name: "iPhoneSimClientProbe", targets: ["iPhoneSimClientProbe"]),
         .executable(name: "RelayApprovalLiveProbe", targets: ["RelayApprovalLiveProbe"]),
+        .executable(name: "MobileConnectionStateMachineProbe", targets: ["MobileConnectionStateMachineProbe"]),
         .executable(name: "SandboxPayloadProbe", targets: ["SandboxPayloadProbe"]),
         .executable(name: "ThreadStartSchemaProbe", targets: ["ThreadStartSchemaProbe"]),
         .executable(name: "TurnStartSchemaProbe", targets: ["TurnStartSchemaProbe"]),
@@ -96,6 +97,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "RelayApprovalLiveProbe",
+            dependencies: ["AgentClientCore"]
+        ),
+        .executableTarget(
+            name: "MobileConnectionStateMachineProbe",
             dependencies: ["AgentClientCore"]
         ),
         .executableTarget(
