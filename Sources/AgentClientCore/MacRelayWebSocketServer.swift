@@ -1,90 +1,18 @@
 import Foundation
 import Network
 
-/// First relay message server for the HTTP → WebSocket transition.
+/// Local relay WebSocket server for iPhone handoff.
 ///
-/// It uses the same JSON envelope that the final WebSocket transport will use,
-/// and runs over a local TCP listener for this M1 probe slice. The transport can
-/// be swapped to a true WebSocket handshake without changing command handling.
+/// The transport is a real WebSocket listener built on Network.framework; the
+/// command semantics stay isolated in `handleMessage(_:)` so probes and future
+/// transports can reuse the same snapshot/replay/heartbeat dispatch path.
 public final class MacRelayWebSocketServer {
-    private struct IncomingEnvelope: Decodable {
-        let id: String?
-        let type: String
-        let payload: Data?
-
-        enum CodingKeys: String, CodingKey {
-            case id
-            case type
-            case payload
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            id = try container.decodeIfPresent(String.self, forKey: .id)
-            type = try container.decode(String.self, forKey: .type)
-            if container.contains(.payload) {
-                payload = try container.decode(RawJSON.self, forKey: .payload).data
-            } else {
-                payload = nil
-            }
-        }
-    }
-
-    private struct RawJSON: Decodable {
-        let data: Data
-
-        init(from decoder: Decoder) throws {
-            let object = try Self.decodeObject(from: decoder)
-            data = try JSONSerialization.data(withJSONObject: object, options: [])
-        }
-
-        private static func decodeObject(from decoder: Decoder) throws -> Any {
-            if let container = try? decoder.singleValueContainer() {
-                if container.decodeNil() { return NSNull() }
-                if let value = try? container.decode(Bool.self) { return value }
-                if let value = try? container.decode(Int.self) { return value }
-                if let value = try? container.decode(Double.self) { return value }
-                if let value = try? container.decode(String.self) { return value }
-            }
-            if var array = try? decoder.unkeyedContainer() {
-                var values: [Any] = []
-                while !array.isAtEnd {
-                    values.append(try array.decode(RawJSON.self).jsonObject())
-                }
-                return values
-            }
-            let keyed = try decoder.container(keyedBy: DynamicCodingKey.self)
-            var object: [String: Any] = [:]
-            for key in keyed.allKeys {
-                object[key.stringValue] = try keyed.decode(RawJSON.self, forKey: key).jsonObject()
-            }
-            return object
-        }
-
-        private func jsonObject() throws -> Any {
-            try JSONSerialization.jsonObject(with: data)
-        }
-    }
-
-    private struct DynamicCodingKey: CodingKey {
-        let stringValue: String
-        let intValue: Int?
-
-        init?(stringValue: String) {
-            self.stringValue = stringValue
-            self.intValue = nil
-        }
-
-        init?(intValue: Int) {
-            self.stringValue = "\(intValue)"
-            self.intValue = intValue
-        }
-    }
-
     private let relayService: MacRelayService
     private let queue: DispatchQueue
     private var listener: NWListener?
     private var connections: [NWConnection] = []
+    private var readySemaphore: DispatchSemaphore?
+    private var failedStartError: NWError?
 
     public init(relayService: MacRelayService, queue: DispatchQueue = DispatchQueue(label: "MacRelayWebSocketServer")) {
         self.relayService = relayService
@@ -99,15 +27,41 @@ public final class MacRelayWebSocketServer {
         if listener != nil {
             stop()
         }
+
+        let webSocketOptions = NWProtocolWebSocket.Options()
+        webSocketOptions.autoReplyPing = true
+
         let parameters = NWParameters.tcp
+        parameters.defaultProtocolStack.applicationProtocols.insert(webSocketOptions, at: 0)
         let nwPort = NWEndpoint.Port(rawValue: port) ?? .any
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: nwPort)
+
         let listener = try NWListener(using: parameters)
         listener.newConnectionHandler = { [weak self] connection in
             self?.handle(connection)
         }
+        listener.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                self?.readySemaphore?.signal()
+            case .failed(let error):
+                self?.failedStartError = error
+                self?.readySemaphore?.signal()
+            default:
+                break
+            }
+        }
         listener.start(queue: queue)
         self.listener = listener
+    }
+
+    public func waitUntilReady(timeout seconds: TimeInterval = 5) -> Bool {
+        if let port, port != 0 { return true }
+        let semaphore = DispatchSemaphore(value: 0)
+        readySemaphore = semaphore
+        let result = semaphore.wait(timeout: .now() + seconds)
+        readySemaphore = nil
+        return result == .success && failedStartError == nil && (port ?? 0) != 0
     }
 
     public func stop() {
@@ -115,6 +69,8 @@ public final class MacRelayWebSocketServer {
         connections.removeAll()
         listener?.cancel()
         listener = nil
+        failedStartError = nil
+        readySemaphore = nil
     }
 
     private func handle(_ connection: NWConnection) {
@@ -134,27 +90,41 @@ public final class MacRelayWebSocketServer {
     }
 
     private func receive(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            self?.handleReceived(data: data, isComplete: isComplete, error: error, connection: connection)
+        connection.receiveMessage { [weak self] data, context, _, error in
+            self?.handleReceivedMessage(data: data, context: context, error: error, connection: connection)
         }
     }
 
-    private func handleReceived(data: Data?, isComplete: Bool, error: NWError?, connection: NWConnection) {
-        if error != nil || isComplete {
+    private func handleReceivedMessage(
+        data: Data?,
+        context: NWConnection.ContentContext?,
+        error: NWError?,
+        connection: NWConnection
+    ) {
+        if error != nil {
             connection.cancel()
             return
         }
-        if let data, !data.isEmpty {
-            let response = handleMessage(trimLine(data))
-            send(response, on: connection)
-        }
-        receive(on: connection)
-    }
 
-    private func trimLine(_ data: Data) -> Data {
-        let newline = UInt8(ascii: "\n")
-        guard let index = data.firstIndex(of: newline) else { return data }
-        return Data(data[..<index])
+        if let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata {
+            switch metadata.opcode {
+            case .text, .binary:
+                if let data, !data.isEmpty {
+                    send(handleMessage(data), on: connection)
+                }
+            case .close:
+                connection.cancel()
+                return
+            default:
+                break
+            }
+        } else if let data, !data.isEmpty {
+            // Defensive fallback for tests or future transports that call into
+            // this connection path without WebSocket metadata.
+            send(handleMessage(data), on: connection)
+        }
+
+        receive(on: connection)
     }
 
     public func handleMessage(_ data: Data) -> Data {
@@ -190,13 +160,13 @@ public final class MacRelayWebSocketServer {
     private func encode<Payload: Encodable>(_ envelope: RelayEnvelope<Payload>) throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        var data = try encoder.encode(envelope)
-        data.append(UInt8(ascii: "\n"))
-        return data
+        return try encoder.encode(envelope)
     }
 
     private func send(_ data: Data, on connection: NWConnection) {
-        connection.send(content: data, completion: .contentProcessed { error in
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+        let context = NWConnection.ContentContext(identifier: "mac-relay-json", metadata: [metadata])
+        connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { error in
             if error != nil {
                 connection.cancel()
             }
