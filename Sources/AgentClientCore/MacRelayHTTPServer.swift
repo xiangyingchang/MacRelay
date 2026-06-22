@@ -24,13 +24,27 @@ public struct RelayPairingPayload: Codable, Equatable {
     public let host: String
     public let port: UInt16
     public let token: String
+    public let claim: String
     public let protocolVersion: Int
+    public let expiresAt: Date
+    public let claimedAt: Date?
 
-    public init(host: String, port: UInt16, token: String, protocolVersion: Int = RelayProtocolVersion.current) {
+    public init(
+        host: String,
+        port: UInt16,
+        token: String,
+        claim: String,
+        protocolVersion: Int = RelayProtocolVersion.current,
+        expiresAt: Date,
+        claimedAt: Date? = nil
+    ) {
         self.host = host
         self.port = port
         self.token = token
+        self.claim = claim
         self.protocolVersion = protocolVersion
+        self.expiresAt = expiresAt
+        self.claimedAt = claimedAt
     }
 }
 
@@ -42,18 +56,27 @@ public final class MacRelayHTTPServer {
 
     private let relayService: MacRelayService
     private let queue: DispatchQueue
+    private let tokenTTL: TimeInterval
     private var listener: NWListener?
     private var host: String = "127.0.0.1"
     private var pairingToken: String
+    private var pairingClaim: String
+    private var pairingExpiresAt: Date
+    private var pairingClaimedAt: Date?
 
     public init(
         relayService: MacRelayService,
         queue: DispatchQueue = DispatchQueue(label: "MacRelayHTTPServer"),
-        pairingToken: String = MacRelayHTTPServer.generatePairingToken()
+        pairingToken: String = MacRelayHTTPServer.generatePairingToken(),
+        pairingClaim: String = MacRelayHTTPServer.generatePairingToken(),
+        tokenTTL: TimeInterval = 10 * 60
     ) {
         self.relayService = relayService
         self.queue = queue
         self.pairingToken = pairingToken
+        self.pairingClaim = pairingClaim
+        self.tokenTTL = tokenTTL
+        self.pairingExpiresAt = Date().addingTimeInterval(tokenTTL)
     }
 
     public var port: UInt16? {
@@ -65,13 +88,31 @@ public final class MacRelayHTTPServer {
         pairingToken
     }
 
+    public var claim: String {
+        pairingClaim
+    }
+
+    public var expiresAt: Date {
+        pairingExpiresAt
+    }
+
     public var pairingPayload: RelayPairingPayload? {
         guard let port else { return nil }
-        return RelayPairingPayload(host: host, port: port, token: pairingToken)
+        return RelayPairingPayload(
+            host: host,
+            port: port,
+            token: pairingToken,
+            claim: pairingClaim,
+            expiresAt: pairingExpiresAt,
+            claimedAt: pairingClaimedAt
+        )
     }
 
     public func rotatePairingToken() {
         pairingToken = Self.generatePairingToken()
+        pairingClaim = Self.generatePairingToken()
+        pairingExpiresAt = Date().addingTimeInterval(tokenTTL)
+        pairingClaimedAt = nil
     }
 
     public func start(host: String = "127.0.0.1", port: UInt16 = 0) throws {
@@ -118,6 +159,10 @@ public final class MacRelayHTTPServer {
         }
 
         let path = String(parts[1])
+        if path.hasPrefix("/pairing/claim") {
+            return claimPairing(path: path)
+        }
+
         if path == "/pairing" {
             guard let pairingPayload else {
                 return makeResponse(status: "503 Service Unavailable", body: ["error": "relay server not running"])
@@ -126,7 +171,7 @@ public final class MacRelayHTTPServer {
         }
 
         guard isAuthorized(request: request, path: path) else {
-            return makeResponse(status: "401 Unauthorized", body: ["error": "missing or invalid pairing token"])
+            return makeResponse(status: "401 Unauthorized", body: ["error": "missing, expired, or invalid pairing token"])
         }
 
         if path.hasPrefix("/snapshot") {
@@ -143,7 +188,29 @@ public final class MacRelayHTTPServer {
         return makeResponse(status: "404 Not Found", body: ["error": "not found"])
     }
 
+    private func claimPairing(path: String) -> Data {
+        guard !isTokenExpired else {
+            return makeResponse(status: "401 Unauthorized", body: ["error": "pairing token expired"])
+        }
+        guard pairingClaimedAt == nil else {
+            return makeResponse(status: "409 Conflict", body: ["error": "pairing claim already used"])
+        }
+        guard Self.queryValue("claim", in: path) == pairingClaim else {
+            return makeResponse(status: "401 Unauthorized", body: ["error": "missing or invalid pairing claim"])
+        }
+        pairingClaimedAt = Date()
+        guard let pairingPayload else {
+            return makeResponse(status: "503 Service Unavailable", body: ["error": "relay server not running"])
+        }
+        return encodeJSON(pairingPayload)
+    }
+
+    private var isTokenExpired: Bool {
+        Date() >= pairingExpiresAt
+    }
+
     private func isAuthorized(request: String, path: String) -> Bool {
+        guard !isTokenExpired else { return false }
         if Self.queryValue("token", in: path) == pairingToken {
             return true
         }
@@ -157,7 +224,6 @@ public final class MacRelayHTTPServer {
             return value == pairingToken
         }
     }
-
 
     private func encodeJSON<Payload: Encodable>(_ payload: Payload) -> Data {
         do {

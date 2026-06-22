@@ -76,7 +76,24 @@ let pairing = try decoder.decode(RelayPairingPayload.self, from: pairingData)
 try expect(pairing.host == "127.0.0.1", "pairing host mismatch")
 try expect(pairing.port == port, "pairing port mismatch")
 try expect(pairing.token == server.token, "pairing token mismatch")
+try expect(pairing.claim == server.claim, "pairing claim mismatch")
 try expect(pairing.protocolVersion == RelayProtocolVersion.current, "pairing protocol version mismatch")
+try expect(pairing.expiresAt > Date(), "pairing expiresAt should be in the future")
+try expect(pairing.claimedAt == nil, "pairing should start unclaimed")
+
+let claimData = try fetch(URL(string: "http://127.0.0.1:\(port)/pairing/claim?claim=\(server.claim)")!)
+let claimedPairing = try decoder.decode(RelayPairingPayload.self, from: claimData)
+try expect(claimedPairing.claimedAt != nil, "pairing claim should set claimedAt")
+
+let secondClaim = try fetchResponse(URL(string: "http://127.0.0.1:\(port)/pairing/claim?claim=\(server.claim)")!)
+try expect(secondClaim.statusCode == 409, "pairing claim should be one-time")
+
+let oldToken = server.token
+server.rotatePairingToken()
+try expect(server.token != oldToken, "rotatePairingToken should change token")
+
+let unauthorizedOldToken = try fetchResponse(URL(string: "http://127.0.0.1:\(port)/snapshot?token=\(oldToken)")!)
+try expect(unauthorizedOldToken.statusCode == 401, "old token should stop authorizing after rotation")
 
 let unauthorizedSnapshot = try fetchResponse(URL(string: "http://127.0.0.1:\(port)/snapshot")!)
 try expect(unauthorizedSnapshot.statusCode == 401, "snapshot without token should return 401")
