@@ -188,10 +188,8 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     }
 }
 
-@main
-struct RelayCommandLiveProbe {
-    @MainActor
-    static func main() throws {
+@MainActor
+func runRelayCommandLiveProbe() throws {
         guard ProcessInfo.processInfo.environment["MACRELAY_RUN_LIVE_CODEX"] == "1" else {
             print("RelayCommandLiveProbe skipped (set MACRELAY_RUN_LIVE_CODEX=1 to run)")
             exit(0)
@@ -244,6 +242,7 @@ struct RelayCommandLiveProbe {
         try expect(assistantText.lowercased().contains("ok"), "assistant text should contain ok")
         print("live command session.turn.start passed")
         print("approval.resolve live gap: not triggered in tiny read-only prompt; fake dispatcher probe remains coverage for response wiring")
-        print("RelayCommandLiveProbe passed")
-    }
+    print("RelayCommandLiveProbe passed")
 }
+
+try await runRelayCommandLiveProbe()

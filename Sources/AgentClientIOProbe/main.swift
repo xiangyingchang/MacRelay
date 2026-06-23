@@ -7,10 +7,8 @@ enum ProbeError: Error, CustomStringConvertible {
     var description: String { switch self { case .failed(let m): return m } }
 }
 
-@main
-struct AgentClientIOProbe {
-    @MainActor
-    static func main() async throws {
+@MainActor
+func runAgentClientIOProbe() async throws {
         // Set up relay service + servers
         let service = MacRelayService(eventCapacity: 20)
         _ = try service.ingest(.notification(method: "thread/started", params: ["thread": ["id": "th", "cwd": "/tmp"]]))
@@ -55,6 +53,7 @@ struct AgentClientIOProbe {
         wsServer.stop()
         httpServer.stop()
 
-        print("AgentClientIOProbe passed pairing+claim+wsAuth+snapshot+replay+heartbeat")
-    }
+    print("AgentClientIOProbe passed pairing+claim+wsAuth+snapshot+replay+heartbeat")
 }
+
+try await runAgentClientIOProbe()

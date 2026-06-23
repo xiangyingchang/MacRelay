@@ -27,10 +27,8 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     if !condition() { throw ProbeError.failed(message) }
 }
 
-@main
-struct RelayApprovalLiveProbe {
-    @MainActor
-    static func main() throws {
+@MainActor
+func runRelayApprovalLiveProbe() throws {
         guard ProcessInfo.processInfo.environment["MACRELAY_RUN_LIVE_APPROVAL"] == "1" else {
             print("RelayApprovalLiveProbe skipped (set MACRELAY_RUN_LIVE_APPROVAL=1 to run)")
             print("WARNING: this probe burns Codex quota and creates files. Use sparingly.")
@@ -121,9 +119,10 @@ struct RelayApprovalLiveProbe {
         // The presence of the file is the best indicator of success
         try expect(fileExists, "approval probe file should exist after acceptance")
 
-        print("RelayApprovalLiveProbe passed approval=\(sawApproval) file=\(fileExists)")
-    }
+    print("RelayApprovalLiveProbe passed approval=\(sawApproval) file=\(fileExists)")
 }
+
+try await runRelayApprovalLiveProbe()
 
 // Reuse the live bridge from RelayCommandLiveProbe — trimmed to essentials.
 @MainActor

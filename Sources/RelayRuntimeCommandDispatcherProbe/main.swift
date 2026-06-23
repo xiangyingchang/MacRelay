@@ -80,10 +80,8 @@ final class FakeRuntimeBridge: MacRelayRuntimeBridge {
     }
 }
 
-@main
-struct RelayRuntimeCommandDispatcherProbe {
-    @MainActor
-    static func main() throws {
+@MainActor
+func runRelayRuntimeCommandDispatcherProbe() throws {
         let runtime = FakeRuntimeBridge()
         let dispatcher = MacRelayRuntimeCommandDispatcher(runtime: runtime, defaultCWD: { "/private/tmp/MacRelay" })
         let encoder = JSONEncoder()
@@ -125,6 +123,7 @@ struct RelayRuntimeCommandDispatcherProbe {
         try expect(approvalResult == .dispatched("approval.resolve"), "approval dispatch result mismatch")
         try expect(runtime.approvalCalls == [FakeRuntimeBridge.ApprovalCall(requestID: 0, decision: "accept")], "approval call mismatch")
 
-        print("RelayRuntimeCommandDispatcherProbe passed draftCalls=\(runtime.draftCalls.count) settingsCalls=\(runtime.settingsCalls.count) approvalCalls=\(runtime.approvalCalls.count)")
-    }
+    print("RelayRuntimeCommandDispatcherProbe passed draftCalls=\(runtime.draftCalls.count) settingsCalls=\(runtime.settingsCalls.count) approvalCalls=\(runtime.approvalCalls.count)")
 }
+
+try await runRelayRuntimeCommandDispatcherProbe()

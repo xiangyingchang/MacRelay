@@ -7,10 +7,8 @@ enum ProbeError: Error, CustomStringConvertible {
     var description: String { switch self { case .failed(let m): return m } }
 }
 
-@main
-struct RealStateMachineLoopProbe {
-    @MainActor
-    static func main() async throws {
+@MainActor
+func runRealStateMachineLoopProbe() async throws {
         // Set up relay
         let service = MacRelayService(eventCapacity: 20)
         _ = try service.ingest(.notification(method: "thread/started", params: ["thread": ["id": "th-sm", "cwd": "/tmp"]]))
@@ -76,6 +74,7 @@ struct RealStateMachineLoopProbe {
         wsServer.stop()
         httpServer.stop()
 
-        print("RealStateMachineLoopProbe passed connect+reconnect+backoff+authFail")
-    }
+    print("RealStateMachineLoopProbe passed connect+reconnect+backoff+authFail")
 }
+
+try await runRealStateMachineLoopProbe()
