@@ -52,6 +52,18 @@ else
 fi
 echo ""
 
+echo "── iOS Build ──"
+if xcrun --sdk iphonesimulator --show-sdk-path &>/dev/null 2>&1; then
+    if ./scripts/build-ios.sh &>/dev/null; then
+        echo "  ✅ iOS app built + installed"
+    else
+        echo "  ⚠️  iOS build failed (may need Xcode 26+ / iOS 17+ runtime)"
+    fi
+else
+    echo "  ⏭  skipped iOS build: no simulator SDK"
+fi
+echo ""
+
 if [ "$FAIL" -eq 0 ]; then
     echo "All checks passed ✅"
 else
