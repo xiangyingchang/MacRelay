@@ -1,55 +1,82 @@
 # MacRelay
 
-Local-first macOS relay prototype for controlling Codex CLI / `codex app-server` sessions and preparing iPhone handoff.
+Local-first macOS relay that bridges Codex CLI sessions to a companion iPhone app via HTTP + WebSocket.
 
-> Previous working name: `AgentClientM1Prototype`.
+## Current Capabilities
 
-M1 engineering skeleton for the local-first Codex CLI client.
+- **Mac relay server** — HTTP (pairing / snapshot / replay) + WebSocket (standard protocol, token or device-challenge auth)
+- **iPhone pairing** — scan QR code / paste payload → one-time claim → WS connect → snapshot/replay/heartbeat
+- **Device trust** — device registration with Keychain-persisted credentials, challenge-response auth (SHA256 / HMAC-SHA256)
+- **Auto-reconnect** — heartbeat loop with exponential backoff, state-machine driven (unpaired → paired → connecting → connected → reconnecting → offline → authFailed)
+- **Mac Inspector** — live relay status, pairing payload display with QR code, rotate/revoke pairing
+- **iOS URL scheme** — `macrelay://pair?host=...&port=...&claim=...` launches the app and triggers pairing
 
-Current scope:
+## Architecture
 
-- `AgentClientCore`: shared Swift core for macOS and iPhone.
-- `AgentClientMacMock`: command-line mock of the future Mac relay shell.
-- `RelayCoreFixtureProbe`: local fixture that validates reducer -> relay protocol -> event store flow.
+```
+AgentClientCore       — shared models, event store, relay protocol, auth, state machine
+AgentClientIO         — iOS/Mac HTTP + WebSocket client library
+AgentClientiOS        — SwiftUI views + view model for iPhone
+AgentClientMacShell   — macOS SwiftUI app shell with Inspector
+MacRelayiOS           — iOS @main app target (builds for simulator)
+```
 
-This prototype intentionally avoids UI decisions. UI and interaction quality will be designed separately against the Hermes Desktop / Lody references.
-
-Verified core copied from `/private/tmp/AgentClientCorePrototype`:
-
-- `CodexAppServerClient`
-- `JSONRPCWriter`
-- `LineDelimitedJSONBuffer`
-- `CodexApprovalRequest`
-- `CodexTurnDiffUpdated`
-- `CodexFileChangeUpdated`
-- `SessionStateReducer`
-- `RelayProtocol`
-- `EventStore`
-
-Next engineering steps:
-
-- Replace `AgentClientMacMock` with a SwiftUI/AppKit Mac app target.
-- Wire `CodexAppServerClient` to `SessionStateReducer`.
-- Add a real WebSocket relay server.
-- Add QR pairing and device trust.
-- Add iPhone client after Mac relay shell is stable.
-
-## Repository layout
-
-- `Sources/AgentClientCore`: shared relay protocol, event reducer, Codex app-server client, replay store, relay service skeleton, and local HTTP relay probe server.
-- `Sources/AgentClientMacShell`: SwiftUI macOS shell prototype.
-- `Sources/*Probe`: executable probes for schema, relay, HTTP, and fixture validation.
-- `Tests/AgentClientCoreTests`: reducer and formatting tests.
-- `docs/`: product requirements, UI baseline, Mac Relay design, iPhone IA, and execution plan.
-
-## Validation
+## Quick Start (macOS)
 
 ```bash
-swift build
-.build/debug/MacRelayServiceFixtureProbe
+cd /private/tmp/MacRelay
+
+# Full verification (no Codex quota consumed)
+scripts/check.sh
+
+# Start Mac shell
+.build/debug/AgentClientMacShell
+
+# Run a specific probe
 .build/debug/MacRelayHTTPServerProbe
-.build/debug/RelayCommandFixtureProbe
-.build/debug/SandboxPayloadProbe
-.build/debug/SettingsUpdateSchemaProbe
-swift test
+.build/debug/MacRelayWebSocketServerProbe
+.build/debug/iPhoneSimClientProbe
 ```
+
+## Quick Start (iOS Simulator)
+
+```bash
+# Requires Xcode with iOS 17+ simulator runtime
+scripts/build-ios.sh
+
+# Or the check script auto-detects simulator:
+scripts/check.sh   # includes iOS build step if SDK available
+```
+
+## Pairing Flow
+
+1. Start the Mac shell → Inspector → Pairing section shows QR code
+2. Scan QR (or copy URI `macrelay://pair?...`) to iPhone simulator app
+3. App completes claim → connects WebSocket → syncs snapshot + replay events
+4. All subsequent auth uses device credential (Keychain-persisted)
+
+See `docs/e2e-verification.md` for the full manual walkthrough.
+
+## Protocol Docs
+
+- `docs/MacRelay 协议文档.md` — HTTP/WS endpoints, auth flow, error codes, iPhone integration steps
+- `docs/e2e-verification.md` — step-by-step manual verification
+
+## Codex Quota ⚠️
+
+**Live Codex probes are disabled by default.** They consume real model quota.
+
+```bash
+# These run real Codex sessions — use sparingly:
+MACRELAY_RUN_LIVE_CODEX=1 .build/debug/RelayCommandLiveProbe
+MACRELAY_RUN_LIVE_APPROVAL=1 .build/debug/RelayApprovalLiveProbe
+```
+
+All other probes (`check.sh`, `swift test`, `MacRelayHTTPServerProbe`, etc.) use local fixtures and do NOT consume quota.
+
+## Not Yet Done
+
+- App Store distribution pipeline
+- Real approval.resolve live (probe is gated, draft exists)
+- Production-level QR with encrypted payload
+- iOS Keychain credential sharing between app extensions
