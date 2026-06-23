@@ -140,12 +140,15 @@ public struct EventReplayListView: View {
             if viewModel.replayEvents.isEmpty {
                 Text("No events").foregroundStyle(.secondary)
             } else {
-                ForEach(viewModel.replayEvents.indices, id: \.self) { i in
-                    let event = viewModel.replayEvents[i]
-                    HStack {
-                        Text("#\(event.seq)").font(.caption2).foregroundStyle(.secondary)
-                        Text(event.type).font(.caption)
+                ForEach(Array(viewModel.replayEvents.enumerated()), id: \.offset) { (i, event) in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("#\(event.seq)").font(.caption2).foregroundStyle(.secondary)
+                            Text(event.type).font(.caption).bold()
+                            Text(event.timestamp, style: .time).font(.caption2).foregroundStyle(.tertiary)
+                        }
                     }
+                    .padding(.vertical, 2)
                 }
             }
         }.padding()
