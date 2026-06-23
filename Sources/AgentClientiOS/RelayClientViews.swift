@@ -62,13 +62,43 @@ public struct ConnectionStatusView: View {
     @ObservedObject var viewModel: RelayClientViewModel
     public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
     public var body: some View {
-        HStack {
-            Circle().fill(viewModel.heartbeatOnline ? .green : .red).frame(width: 8, height: 8)
-            Text(viewModel.connectionStatus).font(.subheadline)
-            Spacer()
-            if viewModel.isConnecting { ProgressView().scaleEffect(0.7) }
-            Button("Refresh") { Task { try? await viewModel.refresh() } }.buttonStyle(.bordered)
-        }.padding(.horizontal)
+        VStack(spacing: 6) {
+            HStack {
+                Circle()
+                    .fill(viewModel.heartbeatOnline ? .green : viewModel.currentState == .authFailed ? .red : .orange)
+                    .frame(width: 8, height: 8)
+                Text(viewModel.connectionStatus).font(.subheadline)
+                Spacer()
+                if viewModel.isConnecting { ProgressView().scaleEffect(0.7) }
+                Button("Refresh") { Task { try? await viewModel.refresh() } }.buttonStyle(.bordered)
+            }
+            .padding(.horizontal)
+
+            // State-aware actions
+            HStack {
+                if viewModel.currentState == .authFailed || viewModel.currentState == .offline {
+                    Button("Reconnect") { Task { await viewModel.reconnect() } }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
+                if viewModel.currentState == .authFailed, viewModel.hasCredentials {
+                    Button("Clear Credentials", role: .destructive) {
+                        viewModel.clearPairing()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            if let errorCode = viewModel.lastErrorCode {
+                Text("Error: \(errorCode)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+            }
+        }
     }
 }
 

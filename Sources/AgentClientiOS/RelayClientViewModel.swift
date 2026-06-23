@@ -20,6 +20,8 @@ public final class RelayClientViewModel: ObservableObject {
     private let credentialStore: PairingCredentialStore
 
     public var hasCredentials: Bool { credentialStore.token != nil }
+    public var currentState: MobileClientState { stateMachine.state }
+    public var lastErrorCode: String?
 
     public init(host: String = "", port: UInt16 = 0) {
         #if os(macOS) || os(iOS)
@@ -90,13 +92,35 @@ public final class RelayClientViewModel: ObservableObject {
     public func refresh() async throws {
         guard stateMachine.state == .connecting || stateMachine.state == .connected else { return }
         isConnecting = true
-        let snap = try await wsClient.getSnapshot()
-        sessionSnapshot = snap.payload.session
-        heartbeatOnline = true
-        let replay = try await wsClient.getReplay(afterSeq: snap.payload.lastEventSeq > 5 ? snap.payload.lastEventSeq - 5 : 0, maxEvents: 20)
-        if replay.payload.kind == "events" { replayEvents = replay.payload.events }
-        _ = try? await wsClient.heartbeat()
+        do {
+            let snap = try await wsClient.getSnapshot()
+            sessionSnapshot = snap.payload.session
+            heartbeatOnline = true
+            let replay = try await wsClient.getReplay(afterSeq: snap.payload.lastEventSeq > 5 ? snap.payload.lastEventSeq - 5 : 0, maxEvents: 20)
+            if replay.payload.kind == "events" { replayEvents = replay.payload.events }
+            _ = try? await wsClient.heartbeat()
+            lastErrorCode = nil
+        } catch {
+            lastErrorCode = (error as? RelayClientError).map { "\($0)" }
+        }
         isConnecting = false
+    }
+
+    public func reconnect() async {
+        guard let token, let host = httpClient?.baseURL.host, let port = httpClient?.baseURL.port else { return }
+        guard stateMachine.startReconnect() else { return }
+        connectionStatus = "Reconnecting..."
+        wsClient.connect(host: host, port: UInt16(port))
+        do {
+            try await wsClient.authenticate(token: token)
+            guard stateMachine.connected() else { return }
+            try await refresh()
+            lastErrorCode = nil
+        } catch {
+            _ = stateMachine.authRejected()
+            lastErrorCode = RelayErrorCode.authInvalid.code
+            connectionStatus = "Auth Failed"
+        }
     }
 
     public func disconnect() {
