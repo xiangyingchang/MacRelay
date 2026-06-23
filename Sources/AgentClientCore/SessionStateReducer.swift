@@ -252,8 +252,10 @@ public struct SessionStateReducer {
                 return []
             }
 
+        #if os(macOS)
         case let .exit(code, _):
             return [.exited(code: code)]
+        #endif
 
         case .response, .stderr, .raw:
             return []

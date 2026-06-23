@@ -163,6 +163,7 @@ final class SessionStateReducerActionsTests: XCTestCase {
 
     // MARK: - Exit event
 
+    #if os(macOS)
     func test_exit_producesExited() {
         let event = CodexAppServerEvent.exit(code: 0, reason: .exit)
         let actions = reducer.actions(from: event)
@@ -186,4 +187,5 @@ final class SessionStateReducerActionsTests: XCTestCase {
         }
         XCTAssertEqual(code, 1)
     }
+    #endif
 }
