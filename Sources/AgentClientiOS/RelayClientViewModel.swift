@@ -17,8 +17,16 @@ public final class RelayClientViewModel: ObservableObject {
     private let httpClient: RelayHTTPClient?
     private let wsClient = RelayWebSocketClient()
     private var token: String?
+    private let credentialStore: PairingCredentialStore
+
+    public var hasCredentials: Bool { credentialStore.token != nil }
 
     public init(host: String = "", port: UInt16 = 0) {
+        #if os(macOS) || os(iOS)
+        self.credentialStore = KeychainPairingCredentialStore()
+        #else
+        self.credentialStore = MemoryPairingCredentialStore()
+        #endif
         if !host.isEmpty {
             self.httpClient = RelayHTTPClient(host: host, port: port)
         } else {
@@ -63,9 +71,7 @@ public final class RelayClientViewModel: ObservableObject {
         isConnecting = true
 
         if let deviceID = claimed.deviceID, let deviceSecret = claimed.deviceSecret {
-            // Store device credential for later use
-            let store = MemoryPairingCredentialStore()
-            try? store.store(token: claimed.token, claim: claimed.claim, expiresAt: claimed.expiresAt)
+            try? credentialStore.store(token: claimed.token, claim: claimed.claim, expiresAt: claimed.expiresAt)
         }
 
         wsClient.connect(host: payload.host, port: payload.port)
@@ -96,5 +102,15 @@ public final class RelayClientViewModel: ObservableObject {
     public func disconnect() {
         wsClient.disconnect()
         _ = stateMachine.networkLost()
+    }
+
+    public func clearPairing() {
+        try? credentialStore.clear()
+        token = nil
+        pairingCode = ""
+        sessionSnapshot = nil
+        replayEvents = []
+        heartbeatOnline = false
+        _ = stateMachine.transition(to: .unpaired)
     }
 }

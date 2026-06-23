@@ -49,6 +49,10 @@ public struct PairingView: View {
             if !viewModel.pairingCode.isEmpty {
                 Text("Pairing: \(viewModel.pairingCode.prefix(16))...")
                     .font(.caption).foregroundStyle(.secondary)
+                Button("Clear Pairing", role: .destructive) {
+                    viewModel.clearPairing()
+                }
+                .buttonStyle(.bordered)
             }
         }.padding()
     }

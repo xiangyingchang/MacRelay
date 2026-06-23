@@ -100,6 +100,17 @@ public final class KeychainPairingCredentialStore: PairingCredentialStore {
     }
 
     public func revoke() throws {
+        try deleteKeychainItem()
+        token = nil; claim = nil; expiresAt = nil; claimedAt = nil
+    }
+
+    public func clear() throws {
+        try deleteKeychainItem()
+        token = nil; claim = nil; expiresAt = nil; claimedAt = nil
+        deviceID = nil; deviceSecret = nil
+    }
+
+    private func deleteKeychainItem() throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,

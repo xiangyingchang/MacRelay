@@ -10,6 +10,8 @@ public protocol PairingCredentialStore: AnyObject {
     func store(token: String, claim: String, expiresAt: Date) throws
     func reload() throws
     func revoke() throws
+    /// Remove all credentials (stricter than revoke — also clears the keychain item).
+    func clear() throws
 }
 
 public final class MemoryPairingCredentialStore: PairingCredentialStore {
@@ -29,14 +31,13 @@ public final class MemoryPairingCredentialStore: PairingCredentialStore {
         self.expiresAt = expiresAt
     }
 
-    public func reload() throws {
-        // Memory store always returns the latest stored values.
-    }
+    public func reload() throws {}
 
     public func revoke() throws {
-        token = nil
-        claim = nil
-        expiresAt = nil
-        claimedAt = nil
+        token = nil; claim = nil; expiresAt = nil; claimedAt = nil
+    }
+
+    public func clear() throws {
+        token = nil; claim = nil; expiresAt = nil; claimedAt = nil
     }
 }
