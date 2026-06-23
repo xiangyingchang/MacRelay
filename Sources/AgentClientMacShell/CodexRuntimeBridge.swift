@@ -337,6 +337,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         case let .notification(method, _):
             statusText = "notification: \(method)"
 
+        #if os(macOS)
         case let .exit(code, _):
             client = nil
             isAppServerRunning = false
@@ -346,6 +347,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
             latestTurnID = nil
             pendingRequests.removeAll()
             statusText = "app-server exited: \(code)"
+        #endif
         }
 
         apply(reducer.actions(from: event))

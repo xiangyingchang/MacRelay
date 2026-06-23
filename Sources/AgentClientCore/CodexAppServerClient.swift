@@ -11,12 +11,12 @@ public enum CodexAppServerEvent {
     #endif
 }
 
-#if os(macOS)
 public final class CodexAppServerClient {
     public var onEvent: ((CodexAppServerEvent) -> Void)?
 
     private let codexCommand: String
     private let cwd: String
+    #if os(macOS)
     private let process = Process()
     private let stdinPipe = Pipe()
     private let stdoutPipe = Pipe()
@@ -24,6 +24,9 @@ public final class CodexAppServerClient {
     private let stdoutBuffer = LineDelimitedJSONBuffer()
     private let stderrBuffer = LineDelimitedJSONBuffer()
     private var writer: JSONRPCWriter?
+    #else
+    private var writer: JSONRPCWriter?
+    #endif
 
     public init(codexCommand: String = "codex", cwd: String) {
         self.codexCommand = codexCommand
@@ -31,6 +34,7 @@ public final class CodexAppServerClient {
     }
 
     public func start() throws {
+        #if os(macOS)
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [codexCommand, "app-server", "--stdio"]
         process.currentDirectoryURL = URL(fileURLWithPath: cwd)
@@ -44,7 +48,6 @@ public final class CodexAppServerClient {
             guard let self else { return }
             let data = handle.availableData
             guard !data.isEmpty else { return }
-
             for line in self.stdoutBuffer.append(data) {
                 self.handleStdoutLine(line)
             }
@@ -54,7 +57,6 @@ public final class CodexAppServerClient {
             guard let self else { return }
             let data = handle.availableData
             guard !data.isEmpty else { return }
-
             for line in self.stderrBuffer.append(data) {
                 self.onEvent?(.stderr(line))
             }
@@ -67,33 +69,32 @@ public final class CodexAppServerClient {
         }
 
         try process.run()
+        #else
+        fatalError("CodexAppServerClient is macOS only")
+        #endif
     }
 
     public func stop() {
+        #if os(macOS)
         if process.isRunning {
             process.terminate()
         }
+        #endif
     }
 
     @discardableResult
     public func request(method: String, params: Any = [:]) throws -> Int {
-        guard let writer else {
-            throw CodexAppServerClientError.notStarted
-        }
+        guard let writer else { throw CodexAppServerClientError.notStarted }
         return try writer.request(method: method, params: params)
     }
 
     public func notification(method: String, params: Any? = nil) throws {
-        guard let writer else {
-            throw CodexAppServerClientError.notStarted
-        }
+        guard let writer else { throw CodexAppServerClientError.notStarted }
         try writer.notification(method: method, params: params)
     }
 
     public func response(id: Int, result: Any) throws {
-        guard let writer else {
-            throw CodexAppServerClientError.notStarted
-        }
+        guard let writer else { throw CodexAppServerClientError.notStarted }
         try writer.response(id: id, result: result)
     }
 
@@ -105,35 +106,23 @@ public final class CodexAppServerClient {
         }
 
         if let id = message["id"] as? Int, let method = message["method"] as? String {
-            onEvent?(.serverRequest(
-                id: id,
-                method: method,
-                params: message["params"] as? [String: Any]
-            ))
+            onEvent?(.serverRequest(id: id, method: method, params: message["params"] as? [String: Any]))
             return
         }
 
         if let id = message["id"] as? Int {
-            onEvent?(.response(
-                id: id,
-                result: message["result"] as? [String: Any],
-                error: message["error"]
-            ))
+            onEvent?(.response(id: id, result: message["result"] as? [String: Any], error: message["error"]))
             return
         }
 
         if let method = message["method"] as? String {
-            onEvent?(.notification(
-                method: method,
-                params: message["params"] as? [String: Any]
-            ))
+            onEvent?(.notification(method: method, params: message["params"] as? [String: Any]))
             return
         }
 
         onEvent?(.raw(line))
     }
 }
-#endif
 
 public enum CodexAppServerClientError: Error {
     case notStarted
