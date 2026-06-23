@@ -13,12 +13,16 @@ public struct RelayChallengePayload: Codable, Equatable {
 }
 
 /// Holds challenge-response state per connection.
+/// Uses pluggable `RelayChallengeSigner` for the cryptographic hash.
 public final class NonceManager {
-    private var pendingChallenges: [String: RelayChallengePayload] = [:]
+    private var pendingChallenges: [String: RelayChallengePayload] = [:];
     private var usedNonces: Set<String> = []
     private let maxUsed = 1000
+    public let signer: RelayChallengeSigner
 
-    public init() {}
+    public init(signer: RelayChallengeSigner = SHA256Signer()) {
+        self.signer = signer
+    }
 
     public func issueNonce(deviceID: String) -> RelayChallengePayload {
         let challenge = RelayChallengePayload(deviceID: deviceID)
@@ -30,14 +34,12 @@ public final class NonceManager {
         guard let challenge = pendingChallenges[deviceID] else { return false }
         guard !usedNonces.contains(challenge.nonce) else { return false }
 
-        let expected = Self.hash(challenge.nonce, withSecret: secret)
+        let expected = signer.sign(challenge: challenge.nonce, secret: secret)
         let ok = expected == challengeResponse
         if ok {
             pendingChallenges.removeValue(forKey: deviceID)
             usedNonces.insert(challenge.nonce)
-            if usedNonces.count > maxUsed {
-                usedNonces.removeFirst() // crude eviction for first version
-            }
+            if usedNonces.count > maxUsed { usedNonces.removeFirst() }
         }
         return ok
     }
@@ -46,13 +48,8 @@ public final class NonceManager {
         pendingChallenges.removeValue(forKey: deviceID)
     }
 
+    /// Legacy static convenience — delegates to SHA256Signer.
     public static func hash(_ nonce: String, withSecret secret: String) -> String {
-        let input = nonce + secret
-        let data = Data(input.utf8)
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        data.withUnsafeBytes { buf in
-            _ = CC_SHA256(buf.baseAddress, CC_LONG(data.count), &digest)
-        }
-        return digest.map { String(format: "%02x", $0) }.joined()
+        SHA256Signer().sign(challenge: nonce, secret: secret)
     }
 }
