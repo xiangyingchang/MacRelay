@@ -5,11 +5,13 @@ import PackageDescription
 let package = Package(
     name: "AgentClientM1Prototype",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v14),
+        .iOS(.v17)
     ],
     products: [
         .library(name: "AgentClientCore", targets: ["AgentClientCore"]),
         .library(name: "AgentClientIO", targets: ["AgentClientIO"]),
+        .library(name: "AgentClientiOS", targets: ["AgentClientiOS"]),
         .executable(name: "AgentClientMacMock", targets: ["AgentClientMacMock"]),
         .executable(name: "AgentClientMacShell", targets: ["AgentClientMacShell"]),
         .executable(name: "CodexAppServerInitProbe", targets: ["CodexAppServerInitProbe"]),
@@ -41,6 +43,10 @@ let package = Package(
         .target(
             name: "AgentClientIO",
             dependencies: ["AgentClientCore"]
+        ),
+        .target(
+            name: "AgentClientiOS",
+            dependencies: ["AgentClientCore", "AgentClientIO"]
         ),
         .executableTarget(
             name: "AgentClientMacMock",
