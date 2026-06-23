@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "AgentClientiOS", targets: ["AgentClientiOS"]),
         .executable(name: "AgentClientMacMock", targets: ["AgentClientMacMock"]),
         .executable(name: "AgentClientMacShell", targets: ["AgentClientMacShell"]),
+        .executable(name: "MacRelayiOS", targets: ["MacRelayiOS"]),
         .executable(name: "CodexAppServerInitProbe", targets: ["CodexAppServerInitProbe"]),
         .executable(name: "CodexDetectorProbe", targets: ["CodexDetectorProbe"]),
         .executable(name: "RelayCommandFixtureProbe", targets: ["RelayCommandFixtureProbe"]),
@@ -48,6 +49,10 @@ let package = Package(
         .target(
             name: "AgentClientiOS",
             dependencies: ["AgentClientCore", "AgentClientIO"]
+        ),
+        .executableTarget(
+            name: "MacRelayiOS",
+            dependencies: ["AgentClientIO", "AgentClientiOS"]
         ),
         .executableTarget(
             name: "AgentClientMacMock",
