@@ -410,10 +410,9 @@ final class MacShellViewModel: ObservableObject {
 
     #if os(macOS)
     var relayPairingQRImage: NSImage? {
-        guard relayServerRunning, let pairing = relayHTTPServer.pairingPayload,
-              let jsonData = try? JSONEncoder().encode(pairing),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return nil }
-        let data = Data(jsonString.utf8)
+        guard relayServerRunning, let pairing = relayHTTPServer.pairingPayload else { return nil }
+        let uri = RelayPairingURI(payload: pairing).uriString
+        let data = Data(uri.utf8)
         guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
         qrFilter.setValue(data, forKey: "inputMessage")
         qrFilter.setValue("H", forKey: "inputCorrectionLevel")

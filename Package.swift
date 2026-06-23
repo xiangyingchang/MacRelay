@@ -31,6 +31,7 @@ let package = Package(
         .executable(name: "AgentClientIOProbe", targets: ["AgentClientIOProbe"]),
         .executable(name: "RealStateMachineLoopProbe", targets: ["RealStateMachineLoopProbe"]),
         .executable(name: "ChallengeSignerProbe", targets: ["ChallengeSignerProbe"]),
+        .executable(name: "PairingURIProbe", targets: ["PairingURIProbe"]),
         .executable(name: "RelayApprovalLiveProbe", targets: ["RelayApprovalLiveProbe"]),
         .executable(name: "MobileConnectionStateMachineProbe", targets: ["MobileConnectionStateMachineProbe"]),
         .executable(name: "SandboxPayloadProbe", targets: ["SandboxPayloadProbe"]),
@@ -124,6 +125,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "ChallengeSignerProbe",
+            dependencies: ["AgentClientCore"]
+        ),
+        .executableTarget(
+            name: "PairingURIProbe",
             dependencies: ["AgentClientCore"]
         ),
         .executableTarget(

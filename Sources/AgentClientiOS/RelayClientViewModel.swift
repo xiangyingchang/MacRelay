@@ -61,16 +61,12 @@ public final class RelayClientViewModel: ObservableObject {
     /// Claim a pairing from a raw JSON payload string (pasted from Mac Inspector).
     /// Saves device credential to local memory store.
     public func claimFromPayload(_ jsonString: String) async throws {
-        guard let data = jsonString.data(using: .utf8) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let payload = try decoder.decode(RelayPairingPayload.self, from: data)
-
+        guard let uri = RelayPairingURI.detect(jsonString) else { return }
         guard stateMachine.attemptPairing() else { return }
-        let client = RelayHTTPClient(host: payload.host, port: payload.port)
+        let client = RelayHTTPClient(host: uri.host, port: uri.port)
 
         // Complete the one-time claim
-        let claimed = try await client.claimPairing(claim: payload.claim)
+        let claimed = try await client.claimPairing(claim: uri.claim)
         pairingCode = claimed.claim
         token = claimed.token
         isConnecting = true
@@ -79,7 +75,7 @@ public final class RelayClientViewModel: ObservableObject {
             try? credentialStore.store(token: claimed.token, claim: claimed.claim, expiresAt: claimed.expiresAt)
         }
 
-        wsClient.connect(host: payload.host, port: payload.port)
+        wsClient.connect(host: uri.host, port: uri.port)
         do {
             try await wsClient.authenticate(token: claimed.token)
             guard stateMachine.pairSuccess() else { return }
