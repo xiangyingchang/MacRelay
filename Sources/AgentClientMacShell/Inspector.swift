@@ -149,6 +149,14 @@ struct Inspector: View {
 
             InspectorSection(title: "Pairing") {
                 VStack(alignment: .leading, spacing: 8) {
+                    #if os(macOS)
+                    if let qrImage = viewModel.relayPairingQRImage {
+                        Image(nsImage: qrImage)
+                            .resizable()
+                            .interpolation(.none)
+                            .frame(width: 120, height: 120)
+                    }
+                    #endif
                     Text(viewModel.relayPairingDisplay)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Theme.textSecondary)

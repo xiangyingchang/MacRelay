@@ -408,6 +408,24 @@ final class MacShellViewModel: ObservableObject {
         record(.settingsUpdate, "relay.pairing.rotate")
     }
 
+    #if os(macOS)
+    var relayPairingQRImage: NSImage? {
+        guard relayServerRunning, let pairing = relayHTTPServer.pairingPayload,
+              let jsonData = try? JSONEncoder().encode(pairing),
+              let jsonString = String(data: jsonData, encoding: .utf8) else { return nil }
+        let data = Data(jsonString.utf8)
+        guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        qrFilter.setValue(data, forKey: "inputMessage")
+        qrFilter.setValue("H", forKey: "inputCorrectionLevel")
+        guard let ciImage = qrFilter.outputImage else { return nil }
+        let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: 6, y: 6))
+        let rep = NSCIImageRep(ciImage: scaled)
+        let nsImage = NSImage(size: rep.size)
+        nsImage.addRepresentation(rep)
+        return nsImage
+    }
+    #endif
+
     func startRelayServer(persistConfiguration: Bool = true) {
         relayServerLastError = nil
         do {
