@@ -385,6 +385,29 @@ final class MacShellViewModel: ObservableObject {
         record(.snapshotGet, "snapshot.get seq=\(relaySnapshot.lastEventSeq)")
     }
 
+    var relayPairingDisplay: String {
+        guard relayServerRunning, let pairing = relayHTTPServer.pairingPayload else {
+            return "Relay not running"
+        }
+        let ms = Int(pairing.expiresAt.timeIntervalSinceNow)
+        let secretMasked = (pairing.deviceSecret?.prefix(8) ?? "-") + "..."
+        return """
+        host: \(pairing.host)
+        port: \(pairing.port)
+        token: \(pairing.token.prefix(16))...
+        claim: \(pairing.claim.prefix(16))...
+        deviceID: \(pairing.deviceID ?? "-")
+        expires: \(ms)s
+        version: \(pairing.protocolVersion)
+        """
+    }
+
+    func rotateRelayPairing() {
+        relayHTTPServer.rotatePairingToken()
+        relayStatusText = "Pairing rotated port=\(relayServerPort)"
+        record(.settingsUpdate, "relay.pairing.rotate")
+    }
+
     func startRelayServer(persistConfiguration: Bool = true) {
         relayServerLastError = nil
         do {

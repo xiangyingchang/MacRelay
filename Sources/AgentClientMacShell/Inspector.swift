@@ -147,6 +147,21 @@ struct Inspector: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
 
+            InspectorSection(title: "Pairing") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(viewModel.relayPairingDisplay)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                    HStack {
+                        FileActionButton(title: "Rotate", systemName: "arrow.triangle.2.circlepath", action: viewModel.rotateRelayPairing)
+                        Spacer()
+                    }
+                }
+                .padding(9)
+                .background(Theme.bgTertiary)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+
             InspectorSection(title: "Mock Commands") {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(viewModel.commandLog) { action in
