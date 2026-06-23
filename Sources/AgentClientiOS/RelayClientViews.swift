@@ -98,6 +98,18 @@ public struct ConnectionStatusView: View {
                     .foregroundStyle(.red)
                     .padding(.horizontal)
             }
+            HStack {
+                if let lastHb = viewModel.lastHeartbeat {
+                    Text("Last hb: \(lastHb, style: .relative) ago")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if viewModel.reconnectAttempt > 0 {
+                    Text("Attempt: \(viewModel.reconnectAttempt)")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
         }
     }
 }

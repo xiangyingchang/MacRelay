@@ -22,6 +22,9 @@ public final class RelayClientViewModel: ObservableObject {
     public var hasCredentials: Bool { credentialStore.token != nil }
     public var currentState: MobileClientState { stateMachine.state }
     public var lastErrorCode: String?
+    @Published public var lastHeartbeat: Date?
+    @Published public var reconnectAttempt = 0
+    private var heartbeatTask: Task<Void, Never>?
 
     public init(host: String = "", port: UInt16 = 0) {
         #if os(macOS) || os(iOS)
@@ -87,6 +90,7 @@ public final class RelayClientViewModel: ObservableObject {
             _ = stateMachine.authRejected()
             throw error
         }
+        startHeartbeatLoop()
     }
 
     public func refresh() async throws {
@@ -125,10 +129,42 @@ public final class RelayClientViewModel: ObservableObject {
 
     public func disconnect() {
         wsClient.disconnect()
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         _ = stateMachine.networkLost()
     }
 
+    public func startHeartbeatLoop(interval: TimeInterval = 5) {
+        heartbeatTask?.cancel()
+        heartbeatTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                guard self.stateMachine.state == .connected else {
+                    try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                    continue
+                }
+                do {
+                    _ = try await self.wsClient.heartbeat()
+                    await MainActor.run { self.lastHeartbeat = Date() }
+                } catch {
+                    await MainActor.run {
+                        _ = self.stateMachine.networkLost()
+                        self.connectionStatus = "Heartbeat lost"
+                        self.reconnectAttempt += 1
+                    }
+                    // Exponential backoff: 1s, 2s, 4s, ... cap 30s
+                    let backoff = min(1 << min(self.reconnectAttempt, 5), 30)
+                    try? await Task.sleep(nanoseconds: UInt64(backoff) * 1_000_000_000)
+                    await self.reconnect()
+                }
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+    }
+
     public func clearPairing() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         try? credentialStore.clear()
         token = nil
         pairingCode = ""
