@@ -126,4 +126,10 @@ func runRelayRuntimeCommandDispatcherProbe() throws {
     print("RelayRuntimeCommandDispatcherProbe passed draftCalls=\(runtime.draftCalls.count) settingsCalls=\(runtime.settingsCalls.count) approvalCalls=\(runtime.approvalCalls.count)")
 }
 
-try await runRelayRuntimeCommandDispatcherProbe()
+@main
+struct RelayRuntimeCommandDispatcherProbeEntry {
+    @MainActor
+    static func main() throws {
+        try runRelayRuntimeCommandDispatcherProbe()
+    }
+}
