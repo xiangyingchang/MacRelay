@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .library(name: "AgentClientCore", targets: ["AgentClientCore"]),
+        .library(name: "AgentClientIO", targets: ["AgentClientIO"]),
         .executable(name: "AgentClientMacMock", targets: ["AgentClientMacMock"]),
         .executable(name: "AgentClientMacShell", targets: ["AgentClientMacShell"]),
         .executable(name: "CodexAppServerInitProbe", targets: ["CodexAppServerInitProbe"]),
@@ -24,6 +25,7 @@ let package = Package(
         .executable(name: "KeychainPairingCredentialStoreProbe", targets: ["KeychainPairingCredentialStoreProbe"]),
         .executable(name: "DeviceTrustStoreProbe", targets: ["DeviceTrustStoreProbe"]),
         .executable(name: "iPhoneSimClientProbe", targets: ["iPhoneSimClientProbe"]),
+        .executable(name: "AgentClientIOProbe", targets: ["AgentClientIOProbe"]),
         .executable(name: "RelayApprovalLiveProbe", targets: ["RelayApprovalLiveProbe"]),
         .executable(name: "MobileConnectionStateMachineProbe", targets: ["MobileConnectionStateMachineProbe"]),
         .executable(name: "SandboxPayloadProbe", targets: ["SandboxPayloadProbe"]),
@@ -35,6 +37,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "AgentClientCore"),
+        .target(
+            name: "AgentClientIO",
+            dependencies: ["AgentClientCore"]
+        ),
         .executableTarget(
             name: "AgentClientMacMock",
             dependencies: ["AgentClientCore"]
@@ -94,6 +100,10 @@ let package = Package(
         .executableTarget(
             name: "iPhoneSimClientProbe",
             dependencies: ["AgentClientCore"]
+        ),
+        .executableTarget(
+            name: "AgentClientIOProbe",
+            dependencies: ["AgentClientCore", "AgentClientIO"]
         ),
         .executableTarget(
             name: "RelayApprovalLiveProbe",
