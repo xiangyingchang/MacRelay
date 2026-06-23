@@ -104,7 +104,9 @@ public enum SessionReducerAction {
     case fileChangeUpdated(CodexFileChangeUpdated)
     case error(params: [String: Any])
     case rateLimitsUpdated(params: [String: Any])
+    #if os(macOS)
     case exited(code: Int32)
+    #endif
 }
 
 public struct SessionStateReducer {
@@ -209,9 +211,11 @@ public struct SessionStateReducer {
                 rateLimitReachedType: rateLimits["rateLimitReachedType"] as? String
             )
 
+        #if os(macOS)
         case .exited:
             state.hasExited = true
             state.status = .exited
+        #endif
         }
     }
 
@@ -252,8 +256,10 @@ public struct SessionStateReducer {
                 return []
             }
 
+        #if os(macOS)
         case let .exit(code, _):
             return [.exited(code: code)]
+        #endif
 
         case .response, .stderr, .raw:
             return []

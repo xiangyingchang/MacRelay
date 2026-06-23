@@ -82,6 +82,7 @@ public enum CodexCLIDetector {
     }
 
     private static func version(for executablePath: String) -> String? {
+        #if os(macOS)
         let process = Process()
         let output = Pipe()
         let error = Pipe()
@@ -106,5 +107,8 @@ public enum CodexCLIDetector {
 
         return String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        #else
+        return nil
+        #endif
     }
 }

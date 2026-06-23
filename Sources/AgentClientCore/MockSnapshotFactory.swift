@@ -3,7 +3,13 @@ import Foundation
 public enum MockSnapshotFactory {
     public static func makeRelaySnapshot(
         deviceID: String = "local-mock",
-        macName: String? = Host.current().localizedName
+        macName: String? = {
+            #if os(macOS)
+            return Host.current().localizedName
+            #else
+            return nil
+            #endif
+        }()
     ) -> RelaySnapshotPayload {
         let reducer = SessionStateReducer()
         var snapshot = SessionSnapshot()
@@ -45,8 +51,12 @@ public enum MockSnapshotFactory {
                     try record(type: .fileChangeUpdated, payload: RelaySessionSnapshotPayload(snapshot: snapshot))
                 case .error:
                     try record(type: .error, payload: RelaySessionSnapshotPayload(snapshot: snapshot))
-                case .rateLimitsUpdated, .approvalResolved, .exited:
+                case .rateLimitsUpdated, .approvalResolved:
                     break
+                #if os(macOS)
+                case .exited:
+                    break
+                #endif
                 }
             }
         }

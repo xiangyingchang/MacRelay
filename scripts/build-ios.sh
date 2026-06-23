@@ -9,8 +9,8 @@ set -euo pipefail
 
 PRODUCT="MacRelayiOS"
 SDK="iphonesimulator"
-TRIPLE="arm64-apple-ios17.0-simulator"
-DEVICE_NAME="iPhone 16"
+TRIPLE="x86_64-apple-ios17.0-simulator"
+DEVICE_NAME="iPhone 17"
 DEST="platform=iOS Simulator,name=$DEVICE_NAME"
 
 # Check SDK availability
@@ -25,7 +25,7 @@ fi
 echo "==> Checking simulator: $DEVICE_NAME"
 if ! xcrun simctl list devices available "$DEVICE_NAME" | grep -q "$DEVICE_NAME"; then
     echo "==> Creating simulator device: $DEVICE_NAME"
-    RUNTIME=$(xcrun simctl list runtimes ios | head -1 | awk '{print $NF}')
+    RUNTIME=$(xcrun simctl list runtimes ios | grep -v "^==" | head -1 | awk '{print $NF}')
     if [ -z "$RUNTIME" ]; then
         echo "ERROR: No iOS simulator runtime found."
         echo "Download one in Xcode → Settings → Platforms."
@@ -40,7 +40,8 @@ if ! xcrun simctl list devices available "$DEVICE_NAME" | grep -q "$DEVICE_NAME"
 fi
 
 echo "==> Building $PRODUCT for $SDK ($TRIPLE)"
-swift build --product "$PRODUCT" -c debug --sdk "$SDK" --triple "$TRIPLE"
+SDK_PATH=$(xcrun --sdk "$SDK" --show-sdk-path)
+swift build --product "$PRODUCT" -c debug --sdk "$SDK_PATH" --triple "$TRIPLE"
 
 APP_BUNDLE=".build/debug/${PRODUCT}.app"
 BIN=".build/debug/$PRODUCT"
@@ -66,6 +67,8 @@ if [ -f "$BIN" ]; then
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
+    <key>MinimumOSVersion</key>
+    <string>17.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSRequiresIPhoneOS</key>

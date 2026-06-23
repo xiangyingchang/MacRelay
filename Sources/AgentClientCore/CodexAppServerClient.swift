@@ -6,9 +6,12 @@ public enum CodexAppServerEvent {
     case notification(method: String, params: [String: Any]?)
     case stderr(String)
     case raw(String)
+    #if os(macOS)
     case exit(code: Int32, reason: Process.TerminationReason)
+    #endif
 }
 
+#if os(macOS)
 public final class CodexAppServerClient {
     public var onEvent: ((CodexAppServerEvent) -> Void)?
 
@@ -130,6 +133,7 @@ public final class CodexAppServerClient {
         onEvent?(.raw(line))
     }
 }
+#endif
 
 public enum CodexAppServerClientError: Error {
     case notStarted

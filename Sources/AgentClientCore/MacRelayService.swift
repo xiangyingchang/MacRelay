@@ -117,8 +117,12 @@ public final class MacRelayService {
             type = .diffUpdated
         case .fileChangeUpdated:
             type = .fileChangeUpdated
-        case .error, .exited:
+        case .error:
             type = .error
+        #if os(macOS)
+        case .exited:
+            type = .error
+        #endif
         case .rateLimitsUpdated:
             type = nil
         }
