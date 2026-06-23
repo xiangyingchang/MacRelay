@@ -122,6 +122,23 @@ struct Inspector: View {
                             .foregroundStyle(Theme.error)
                             .lineLimit(2)
                     }
+                    HStack {
+                        Text("Host mode:").font(.system(size: 11))
+                        Picker("Host mode", selection: Binding(
+                            get: { viewModel.relayHostMode },
+                            set: { viewModel.setRelayHost(mode: $0) }
+                        )) {
+                            Text("Localhost").tag("local")
+                            Text("LAN").tag("lan")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Spacer()
+                    }
+                    if viewModel.relayHostMode == "lan", viewModel.relayLANIPv4 == nil {
+                        Text("⚠️ No LAN IP found — using localhost")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                     KeyValue("Host", viewModel.relayServerHost)
                     KeyValue("Port", viewModel.relayServerRunning ? "\(viewModel.relayServerPort)" : "-")
                     KeyValue("Auto-start", viewModel.relayServerConfiguredToStart ? "Enabled" : "Disabled")

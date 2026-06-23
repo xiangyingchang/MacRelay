@@ -38,8 +38,12 @@ final class MacShellViewModel: ObservableObject {
     @Published private(set) var relayServerPort: UInt16 = 0
     @Published private(set) var relayServerLastError: String?
     @Published private(set) var relayServerConfiguredToStart: Bool
-    let relayServerHost = "127.0.0.1"
+    @Published private(set) var relayLANIPv4: String?
+    @Published private(set) var relayServerHost: String
+    @Published private(set) var relayHostMode: String  // "local" or "lan"
+
     private let relayServerConfigKey = "MacRelayHTTPServerEnabled"
+    private let relayHostModeConfigKey = "MacRelayHostMode"
     private lazy var relayHTTPServer = MacRelayHTTPServer(relayService: relayService)
     @Published var runtimeMode: RuntimeMode = .mock
     @Published var activeRunID = "run-polish"
@@ -232,6 +236,15 @@ final class MacShellViewModel: ObservableObject {
         self.snapshot = initial
         self.selectedModel = initial.session?.model ?? "gpt-5.5"
         self.relayServerConfiguredToStart = UserDefaults.standard.bool(forKey: relayServerConfigKey)
+        let lanIP = RelayHostDetector.primaryLANIPv4()
+        self.relayLANIPv4 = lanIP
+        let savedMode = UserDefaults.standard.string(forKey: relayHostModeConfigKey) ?? "local"
+        var hostMode = savedMode
+        if hostMode == "lan", lanIP == nil {
+            hostMode = "local"
+        }
+        self.relayHostMode = hostMode
+        self.relayServerHost = hostMode == "lan" ? (lanIP ?? "127.0.0.1") : "127.0.0.1"
         self.relaySnapshot = relayService.snapshotEnvelope().payload
 
         if relayServerConfiguredToStart {
@@ -423,6 +436,27 @@ final class MacShellViewModel: ObservableObject {
         return nsImage
     }
     #endif
+
+    func setRelayHost(mode: String) {
+        guard mode == "local" || mode == "lan" else { return }
+        relayLANIPv4 = RelayHostDetector.primaryLANIPv4()
+        if mode == "lan", relayLANIPv4 == nil {
+            relayServerLastError = "No LAN IPv4 found — fallback to localhost"
+            relayHostMode = "local"
+        } else {
+            relayHostMode = mode
+        }
+        relayServerHost = relayHostMode == "lan" ? (relayLANIPv4 ?? "127.0.0.1") : "127.0.0.1"
+        UserDefaults.standard.set(relayHostMode, forKey: relayHostModeConfigKey)
+
+        let wasRunning = relayServerRunning
+        if wasRunning {
+            stopRelayServer()
+        }
+        if wasRunning || relayServerConfiguredToStart {
+            startRelayServer(persistConfiguration: false)
+        }
+    }
 
     func startRelayServer(persistConfiguration: Bool = true) {
         relayServerLastError = nil

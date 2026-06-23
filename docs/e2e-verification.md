@@ -8,6 +8,7 @@
 - macOS 14+，Xcode 26+（含 iOS 17+ simulator）
 - Codex CLI 已安装（`~/.npm-global/bin/codex`）
 - 本仓库位于 `/private/tmp/MacRelay`
+- **真机配对需要**：Mac 和 iPhone 连接同一 Wi‑Fi；Mac 防火墙允许 `AgentClientMacShell` 入站连接；Mac Inspector 中 Host mode 设为 "LAN"
 
 ## Step 1 — 启动 Mac Relay
 
@@ -28,7 +29,9 @@ swift build
 
 ## Step 2 — 获取 Pairing Payload
 
-在 Mac Inspector 的 "Pairing" 区域查看当前配对信息：
+在 Mac Inspector 的 "Mac Relay" 区域：
+- **Host mode** 选择器：Simulator/本机选 **Localhost**，真机选 **LAN**
+- 如果 LAN 无法发现 IP，会自动 fallback 到 localhost 并显示警告
 
 ```
 host: 127.0.0.1
