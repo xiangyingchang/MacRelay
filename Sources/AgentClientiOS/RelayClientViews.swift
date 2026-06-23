@@ -14,12 +14,10 @@ public struct PairingView: View {
         VStack(spacing: 16) {
             Text("Connect to Mac Relay").font(.title2)
 
-            // Quick paste from Mac Inspector
             VStack(alignment: .leading, spacing: 4) {
-                Text("Paste pairing payload").font(.caption).foregroundStyle(.secondary)
+                Text("Paste pairing payload or URI").font(.caption).foregroundStyle(.secondary)
                 TextField("{\"host\": ...}", text: $payloadText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(4)
+                    .textFieldStyle(.roundedBorder).lineLimit(4)
                     .font(.system(size: 11, design: .monospaced))
                 Button("Claim") {
                     claimError = nil
@@ -28,16 +26,12 @@ public struct PairingView: View {
                         catch { claimError = error.localizedDescription }
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(payloadText.isEmpty)
-                if let claimError {
-                    Text(claimError).font(.caption).foregroundStyle(.red)
-                }
+                .buttonStyle(.borderedProminent).disabled(payloadText.isEmpty)
+                if let claimError { Text(claimError).font(.caption).foregroundStyle(.red) }
             }
 
             Divider()
 
-            // Manual host:port
             TextField("Host", text: $host).textFieldStyle(.roundedBorder)
             TextField("Port", text: $portText).textFieldStyle(.roundedBorder)
             Button("Pair") {
@@ -49,12 +43,14 @@ public struct PairingView: View {
             if !viewModel.pairingCode.isEmpty {
                 Text("Pairing: \(viewModel.pairingCode.prefix(16))...")
                     .font(.caption).foregroundStyle(.secondary)
-                Button("Clear Pairing", role: .destructive) {
-                    viewModel.clearPairing()
-                }
-                .buttonStyle(.bordered)
+                Button("Clear Pairing", role: .destructive) { viewModel.clearPairing() }
+                    .buttonStyle(.bordered)
             }
         }.padding()
+    }
+
+    public func handleURL(_ url: URL) {
+        Task { try? await viewModel.claimFromURL(url) }
     }
 }
 

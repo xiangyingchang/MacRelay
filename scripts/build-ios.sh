@@ -76,6 +76,15 @@ if [ -f "$BIN" ]; then
     <array><string>arm64</string></array>
     <key>UISupportedInterfaceOrientations</key>
     <array><string>UIInterfaceOrientationPortrait</string></array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.macrelay.ios</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>macrelay</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
 EOF

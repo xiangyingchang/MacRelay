@@ -169,4 +169,8 @@ public final class RelayClientViewModel: ObservableObject {
         heartbeatOnline = false
         _ = stateMachine.transition(to: .unpaired)
     }
+
+    public func claimFromURL(_ url: URL) async throws {
+        try await claimFromPayload(url.absoluteString)
+    }
 }

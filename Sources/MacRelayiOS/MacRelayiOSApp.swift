@@ -20,6 +20,9 @@ struct MacRelayiOSApp: App {
                 }
                 .tabItem { Label("Session", systemImage: "rectangle.split.2x1") }
             }
+            .onOpenURL { url in
+                Task { try? await viewModel.claimFromURL(url) }
+            }
         }
     }
 }
