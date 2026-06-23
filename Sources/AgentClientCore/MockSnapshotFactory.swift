@@ -53,10 +53,8 @@ public enum MockSnapshotFactory {
                     try record(type: .error, payload: RelaySessionSnapshotPayload(snapshot: snapshot))
                 case .rateLimitsUpdated, .approvalResolved:
                     break
-                #if os(macOS)
                 case .exited:
                     break
-                #endif
                 }
             }
         }

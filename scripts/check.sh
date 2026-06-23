@@ -36,10 +36,11 @@ echo ""
 echo "── Probes ──"
 run "MacRelayHTTPServerProbe"              .build/debug/MacRelayHTTPServerProbe
 run "MacRelayWebSocketServerProbe"         .build/debug/MacRelayWebSocketServerProbe
-run "RelayRuntimeCommandDispatcherProbe"   .build/debug/RelayRuntimeCommandDispatcherProbe
-run "AgentClientIOProbe"                   .build/debug/AgentClientIOProbe
-run "ChallengeSignerProbe"                 .build/debug/ChallengeSignerProbe
-run "PairingURIProbe"                      .build/debug/PairingURIProbe
+run "RelayRuntimeCommandDispatcherProbe" .build/debug/RelayRuntimeCommandDispatcherProbe
+run "AgentClientIOProbe"             .build/debug/AgentClientIOProbe
+run "ChallengeSignerProbe"           .build/debug/ChallengeSignerProbe
+run "PairingURIProbe"                .build/debug/PairingURIProbe
+run "RelayCoreFixtureProbe"          .build/debug/RelayCoreFixtureProbe
 echo ""
 
 echo "── Live Probes ──"
