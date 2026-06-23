@@ -126,10 +126,6 @@ func runRelayRuntimeCommandDispatcherProbe() throws {
     print("RelayRuntimeCommandDispatcherProbe passed draftCalls=\(runtime.draftCalls.count) settingsCalls=\(runtime.settingsCalls.count) approvalCalls=\(runtime.approvalCalls.count)")
 }
 
-@main
-struct RelayRuntimeCommandDispatcherProbeEntry {
-    @MainActor
-    static func main() throws {
-        try runRelayRuntimeCommandDispatcherProbe()
-    }
+try MainActor.assumeIsolated {
+    try runRelayRuntimeCommandDispatcherProbe()
 }

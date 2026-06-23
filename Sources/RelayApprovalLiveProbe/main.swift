@@ -103,15 +103,8 @@ func runApprovalProbe() throws {
     if let err = bridge.lastError { throw ProbeError.failed(err) }
     print("RelayApprovalLiveProbe passed approval+turn")
 }
-#endif
 
-@main
-struct RelayApprovalLiveProbe {
-    static func main() throws {
-        #if os(macOS)
-        try runApprovalProbe()
-        #else
-        print("skipped: macOS only")
-        #endif
-    }
-}
+try await MainActor.run { try runApprovalProbe() }
+#else
+print("RelayApprovalLiveProbe skipped: macOS only")
+#endif

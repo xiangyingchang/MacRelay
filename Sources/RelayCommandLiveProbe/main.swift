@@ -94,15 +94,8 @@ func runRelayCommandLiveProbe() throws {
     if let err = bridge.lastError { throw ProbeError.failed(err) }
     print("RelayCommandLiveProbe passed")
 }
-#endif
 
-@main
-struct RelayCommandLiveProbe {
-    static func main() throws {
-        #if os(macOS)
-        try runRelayCommandLiveProbe()
-        #else
-        print("skipped: macOS only")
-        #endif
-    }
-}
+try await MainActor.run { try runRelayCommandLiveProbe() }
+#else
+print("RelayCommandLiveProbe skipped: macOS only")
+#endif
