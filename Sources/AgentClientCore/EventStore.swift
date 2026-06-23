@@ -23,6 +23,53 @@ public struct StoredRelayEvent: Codable {
     public func decodePayload<Payload: Codable>(_ type: Payload.Type) throws -> Payload {
         try JSONDecoder().decode(Payload.self, from: payloadData)
     }
+
+    /// Human-readable summary derived from the event payload, suitable for display.
+    public var summary: String {
+        guard let dict = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
+            return type
+        }
+        switch type {
+        case "notification":
+            let method = dict["method"] as? String ?? ""
+            switch method {
+            case "turn/started":
+                return "Turn started"
+            case "turn/completed":
+                return "Turn completed"
+            case "thread/started":
+                return "Thread started"
+            case "thread/statusChanged":
+                return "Status: \(dict["status"] as? String ?? "-")"
+            case "assistant/delta", "item/agentMessage/delta":
+                let delta = dict["delta"] as? String ?? ""
+                return delta.isEmpty ? "assistant delta" : String(delta.prefix(60))
+            case "settings/updated", "settingsUpdated":
+                return "Settings updated"
+            case "error":
+                return "Error: \(dict["message"] as? String ?? "-")"
+            case "rateLimits/updated":
+                return "Rate limits updated"
+            default:
+                return method.replacingOccurrences(of: "/", with: " ")
+            }
+        case "request":
+            let method = dict["method"] as? String ?? ""
+            if let params = dict["params"] as? [String: Any] {
+                if method == "command/execution/requestApproval" {
+                    return "Approval: \(params["message"] as? String ?? "request")"
+                }
+                if method == "file/change/requestApproval" {
+                    return "File change: \(params["path"] as? String ?? "-")"
+                }
+            }
+            return "request: \(method.replacingOccurrences(of: "/", with: " "))"
+        case "response":
+            return "Response"
+        default:
+            return type
+        }
+    }
 }
 
 public enum EventReplayResult {

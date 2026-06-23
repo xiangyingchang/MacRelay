@@ -143,6 +143,7 @@ public struct EventReplayListView: View {
                             Text(event.type).font(.caption).bold()
                             Text(event.timestamp, style: .time).font(.caption2).foregroundStyle(.tertiary)
                         }
+                        Text(event.summary).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
                     }
                     .padding(.vertical, 2)
                 }
