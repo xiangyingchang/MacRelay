@@ -275,7 +275,7 @@ public final class MacRelayWebSocketServer {
                 return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "unsupported command", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
             }
         } catch {
-            return (try? encode(RelayEnvelope(type: RelayEventType.error.rawValue, payload: ["error": "\(error)"] as [String: String]))) ?? Data()
+            return (try? encode(RelayEnvelope(type: RelayEventType.error.rawValue, payload: ["error": "json processing failed", "code": RelayErrorCode.generalError.code] as [String: String]))) ?? Data()
         }
     }
 

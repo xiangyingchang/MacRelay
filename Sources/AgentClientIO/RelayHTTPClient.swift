@@ -48,9 +48,28 @@ public struct RelayHTTPClient {
     }
 }
 
-public enum RelayClientError: Error {
+public enum RelayClientError: Error, CustomStringConvertible {
     case httpError(status: Int)
     case wsError(String)
     case authFailed(String)
     case challengeFailed(String)
+
+    public var description: String {
+        switch self {
+        case .httpError(let s): return "HTTP \(s)"
+        case .wsError: return "WebSocket error"
+        case .authFailed: return "Auth failed"
+        case .challengeFailed: return "Challenge failed"
+        }
+    }
+
+    /// Error code suitable for UI display (safe, no context leak).
+    public var code: String {
+        switch self {
+        case .httpError: return RelayErrorCode.generalError.code
+        case .wsError: return RelayErrorCode.generalError.code
+        case .authFailed: return RelayErrorCode.authInvalid.code
+        case .challengeFailed: return RelayErrorCode.authInvalid.code
+        }
+    }
 }

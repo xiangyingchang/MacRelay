@@ -122,7 +122,7 @@ public final class MacRelayHTTPServer {
             expiresAt: pairingExpiresAt,
             claimedAt: pairingClaimedAt,
             deviceID: (credentialStore as? KeychainPairingCredentialStore)?.deviceID,
-            deviceSecret: (credentialStore as? KeychainPairingCredentialStore)?.deviceSecret
+            deviceSecret: nil  // deviceSecret must never leave the Keychain
         )
     }
 
@@ -131,8 +131,6 @@ public final class MacRelayHTTPServer {
         pairingClaim = Self.generatePairingToken()
         pairingExpiresAt = Date().addingTimeInterval(tokenTTL)
         pairingClaimedAt = nil
-        try? credentialStore.store(token: pairingToken, claim: pairingClaim, expiresAt: pairingExpiresAt)
-        try? credentialStore.revoke() // clear old
         try? credentialStore.store(token: pairingToken, claim: pairingClaim, expiresAt: pairingExpiresAt)
     }
 
@@ -253,7 +251,7 @@ public final class MacRelayHTTPServer {
             let data = try encoder.encode(payload)
             return makeResponse(status: "200 OK", bodyData: data)
         } catch {
-            return makeResponse(status: "500 Internal Server Error", body: ["error": "\(error)"])
+            return makeResponse(status: "500 Internal Server Error", body: ["error": "json encoding failed", "code": RelayErrorCode.generalError.code])
         }
     }
 

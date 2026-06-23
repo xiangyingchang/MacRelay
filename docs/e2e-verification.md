@@ -70,7 +70,7 @@ curl http://127.0.0.1:48731/pairing
 在 iOS Simulator App 中：
 
 1. **Pairing 标签页**
-2. 将 Step 2 中 Mac Inspector 显示的完整 JSON payload 粘贴到 "Paste pairing payload" 文本框中
+2. 将 Step 2 中 Mac Inspector 显示的 URI（`macrelay://pair?...`）或完整 JSON payload 粘贴到输入框中
 3. 点击 **Claim** 按钮
 4. App 会：
    - 调用 `GET /pairing/claim?claim=...` 完成一次性声明

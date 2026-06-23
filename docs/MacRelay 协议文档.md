@@ -192,8 +192,8 @@ WebSocket 连接建立后，第一条消息必须是：
 
 ## 当前限制与后续方向
 
-- **配对数据仍在内存**：`MemoryPairingCredentialStore` 实现了抽象，后续可接入 Keychain
-- **device trust 尚未实现**：当前只需 token 鉴权，device credential / signed nonce 待补
-- **局域网发现**：当前依赖手动扫码 + 直连 IP；后续可增加 Bonjour 发现
-- **WebSocket reconnect**：断线后客户端重新走 auth → snapshot 恢复
-- **approval flow**：已通过 `RelayRuntimeCommandDispatcher` 和 fake probe 验证，但真实 `approval.resolve` 未在 live probe 中触发（需要能稳定生成 approval 的 Codex turn 场景）
+- **配对数据已在 Keychain**：`KeychainPairingCredentialStore` 持久化 token/claim/deviceID，重启可恢复。Memory store 保留供测试使用。
+- **device trust 已实现**：支持 device registration + challenge-response (SHA256 / HMAC-SHA256)。
+- **局域网发现**：当前依赖扫码 + 直连 IP / `macrelay://` URI；后续可增加 Bonjour 发现。
+- **WebSocket reconnect**：断线后心跳 loop 自动重连（指数退避），恢复 snapshot/replay。
+- **approval flow**：已通过 `RelayRuntimeCommandDispatcher` 和 fake probe 验证，真实 `approval.resolve` 有 gated live probe（`MACRELAY_RUN_LIVE_APPROVAL=1`）。

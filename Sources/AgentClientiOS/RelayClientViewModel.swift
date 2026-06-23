@@ -101,7 +101,7 @@ public final class RelayClientViewModel: ObservableObject {
             _ = try? await wsClient.heartbeat()
             lastErrorCode = nil
         } catch {
-            lastErrorCode = (error as? RelayClientError).map { "\($0)" }
+            lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
         }
         isConnecting = false
     }

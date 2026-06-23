@@ -390,7 +390,6 @@ final class MacShellViewModel: ObservableObject {
             return "Relay not running"
         }
         let ms = Int(pairing.expiresAt.timeIntervalSinceNow)
-        let secretMasked = (pairing.deviceSecret?.prefix(8) ?? "-") + "..."
         return """
         host: \(pairing.host)
         port: \(pairing.port)

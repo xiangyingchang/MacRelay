@@ -18,6 +18,9 @@ run() {
         echo "  ✅ $label"
     else
         echo "  ❌ $label FAILED"
+        echo "     --- output ---"
+        "$@" 2>&1 || true
+        echo "     --- end ---"
         ((FAIL++)) || true
     fi
 }
