@@ -9,10 +9,38 @@ set -euo pipefail
 
 PRODUCT="MacRelayiOS"
 SDK="iphonesimulator"
-DEST="platform=iOS Simulator,name=iPhone 16"
+TRIPLE="arm64-apple-ios17.0-simulator"
+DEVICE_NAME="iPhone 16"
+DEST="platform=iOS Simulator,name=$DEVICE_NAME"
 
-echo "==> Building $PRODUCT for $SDK"
-swift build --product "$PRODUCT" -c debug --sdk "$SDK" --triple arm64-apple-ios17.0-simulator
+# Check SDK availability
+echo "==> Checking SDK: $SDK"
+if ! xcrun --sdk "$SDK" --show-sdk-path &>/dev/null; then
+    echo "ERROR: iOS simulator SDK ($SDK) not found."
+    echo "Download it in Xcode → Settings → Platforms → iOS Simulator."
+    exit 1
+fi
+
+# Check simulator runtime
+echo "==> Checking simulator: $DEVICE_NAME"
+if ! xcrun simctl list devices available "$DEVICE_NAME" | grep -q "$DEVICE_NAME"; then
+    echo "==> Creating simulator device: $DEVICE_NAME"
+    RUNTIME=$(xcrun simctl list runtimes ios | head -1 | awk '{print $NF}')
+    if [ -z "$RUNTIME" ]; then
+        echo "ERROR: No iOS simulator runtime found."
+        echo "Download one in Xcode → Settings → Platforms."
+        exit 1
+    fi
+    xcrun simctl create "$DEVICE_NAME" "$DEVICE_NAME" "$RUNTIME" || {
+        echo "ERROR: Could not create simulator '$DEVICE_NAME'."
+        echo "Available devices:"
+        xcrun simctl list devices available | head -20
+        exit 1
+    }
+fi
+
+echo "==> Building $PRODUCT for $SDK ($TRIPLE)"
+swift build --product "$PRODUCT" -c debug --sdk "$SDK" --triple "$TRIPLE"
 
 APP_BUNDLE=".build/debug/${PRODUCT}.app"
 BIN=".build/debug/$PRODUCT"
@@ -59,7 +87,6 @@ EOF
     xcrun simctl launch booted com.macrelay.ios
 else
     echo "ERROR: Binary not found at $BIN"
-    echo "SwiftPM executable targets produce CLI binaries, not .app bundles."
     echo "For a full iOS app experience, open this package in Xcode:"
     echo "  open Package.swift"
     echo "Then select the MacRelayiOS scheme and an iOS simulator destination."
