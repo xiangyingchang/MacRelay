@@ -11,6 +11,7 @@
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>NSCameraUsageDescription</key><string>Scan the MacRelay pairing QR code from your Mac.</string>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
     <key>UIRequiresFullScreen</key><true/>
     <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
