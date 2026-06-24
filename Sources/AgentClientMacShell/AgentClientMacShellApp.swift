@@ -7,6 +7,8 @@ struct AgentClientMacShellApp: App {
             MacShellView()
                 .frame(minWidth: 1240, minHeight: 760)
         }
+        #if os(macOS)
         .windowStyle(.hiddenTitleBar)
+        #endif
     }
 }
