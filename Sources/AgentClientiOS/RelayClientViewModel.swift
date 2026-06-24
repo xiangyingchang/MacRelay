@@ -46,9 +46,10 @@ public final class RelayClientViewModel: ObservableObject {
         }
     }
 
+    /// Pair by first fetching the pairing payload.
     public func pair(host: String, port: UInt16) async throws {
         let client = RelayHTTPClient(host: host, port: port)
-        guard stateMachine.attemptPairing() else { return }
+        guard stateMachine.attemptPairing() else { throw RelayClientError.invalidPairingInput }
         let pairing = try await client.getPairing()
         pairingCode = pairing.token
         token = pairing.token
@@ -62,15 +63,20 @@ public final class RelayClientViewModel: ObservableObject {
         guard stateMachine.connected() else { return }
     }
 
-    /// Claim a pairing from a raw JSON payload string (pasted from Mac Inspector).
-    /// Saves device credential to local memory store.
+    /// Claim a pairing from a raw JSON payload string or macrelay:// URI.
     public func claimFromPayload(_ jsonString: String) async throws {
         guard let uri = RelayPairingURI.detect(jsonString) else { throw RelayClientError.invalidPairingInput }
-        guard stateMachine.attemptPairing() else { return }
+        guard stateMachine.attemptPairing() else { throw RelayClientError.invalidPairingInput }
         let client = RelayHTTPClient(host: uri.host, port: uri.port)
 
-        // Complete the one-time claim
-        let claimed = try await client.claimPairing(claim: uri.claim)
+        // Complete the one-time claim — on failure reset state machine
+        let claimed: RelayPairingPayload
+        do {
+            claimed = try await client.claimPairing(claim: uri.claim)
+        } catch {
+            stateMachine.pairFailed()
+            throw error
+        }
         pairingCode = claimed.claim
         token = claimed.token
         pairedHost = uri.host
@@ -157,7 +163,6 @@ public final class RelayClientViewModel: ObservableObject {
                         self.connectionStatus = "Heartbeat lost"
                         self.reconnectAttempt += 1
                     }
-                    // Exponential backoff: 1s, 2s, 4s, ... cap 30s
                     let backoff = min(1 << min(self.reconnectAttempt, 5), 30)
                     try? await Task.sleep(nanoseconds: UInt64(backoff) * 1_000_000_000)
                     await self.reconnect()
