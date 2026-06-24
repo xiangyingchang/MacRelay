@@ -14,6 +14,8 @@ struct Inspector: View {
                 StatusPill(text: "Local", tone: .success)
             }
 
+            RelayPairingCard(viewModel: viewModel)
+
             InspectorSection(title: "Changed Files") {
                 VStack(spacing: 8) {
                     if viewModel.displayFiles.isEmpty {
@@ -106,47 +108,6 @@ struct Inspector: View {
 
             InspectorSection(title: "Mac Relay") {
                 VStack(alignment: .leading, spacing: 10) {
-                    // 1. Pairing block — always visible at the top of Mac Relay section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("PAIRING").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.textMuted)
-
-                        #if os(macOS)
-                        if let qrImage = viewModel.relayPairingQRImage {
-                            Image(nsImage: qrImage)
-                                .resizable().interpolation(.none)
-                                .frame(width: 120, height: 120)
-                        }
-                        #endif
-
-                        Text(viewModel.relayPairingURI)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(Theme.textSecondary)
-                            .textSelection(.enabled)
-                            .lineLimit(2)
-
-                        HStack {
-                            Text("Host mode:").font(.system(size: 11))
-                            Picker("Host mode", selection: Binding(
-                                get: { viewModel.relayHostMode },
-                                set: { viewModel.setRelayHost(mode: $0) }
-                            )) {
-                                Text("Localhost").tag("local")
-                                Text("LAN").tag("lan")
-                            }
-                            .pickerStyle(.segmented).labelsHidden()
-                            Spacer()
-                            FileActionButton(title: "Rotate", systemName: "arrow.triangle.2.circlepath", action: viewModel.rotateRelayPairing)
-                        }
-                        if viewModel.relayHostMode == "lan", viewModel.relayLANIPv4 == nil {
-                            Text("⚠️ No LAN IP found — using localhost")
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                    }
-                    .padding(9)
-                    .background(Theme.bgTertiary)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                    // 2. Relay status & controls
                     HStack {
                         StatusPill(text: viewModel.relayServerRunning ? "Running" : "Stopped",
                                    tone: viewModel.relayServerRunning ? .success : .warning)
@@ -207,6 +168,81 @@ struct Inspector: View {
         }
         .padding(18)
         .background(Theme.bgSecondary)
+        }
+    }
+}
+
+struct RelayPairingCard: View {
+    @ObservedObject var viewModel: MacShellViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            SectionLabel("PHONE PAIRING")
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    #if os(macOS)
+                    if let qrImage = viewModel.relayPairingQRImage {
+                        Image(nsImage: qrImage)
+                            .resizable()
+                            .interpolation(.none)
+                            .frame(width: 96, height: 96)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    #endif
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            StatusPill(text: viewModel.relayServerRunning ? "Ready" : "Start Relay", tone: viewModel.relayServerRunning ? .success : .warning)
+                            if viewModel.relayHostMode == "lan" {
+                                StatusPill(text: "LAN", tone: .accent)
+                            }
+                            Spacer()
+                        }
+
+                        Text(viewModel.relayPairingURI)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(Theme.textSecondary)
+                            .textSelection(.enabled)
+                            .lineLimit(3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                HStack {
+                    Picker("Host mode", selection: Binding(
+                        get: { viewModel.relayHostMode },
+                        set: { viewModel.setRelayHost(mode: $0) }
+                    )) {
+                        Text("Localhost").tag("local")
+                        Text("LAN").tag("lan")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    if viewModel.relayServerRunning {
+                        FileActionButton(title: "Stop", systemName: "stop", role: .destructive, action: viewModel.stopRelayServer)
+                    } else {
+                        FileActionButton(title: "Start", systemName: "play", action: { viewModel.startRelayServer() })
+                    }
+                    FileActionButton(title: "Rotate", systemName: "arrow.triangle.2.circlepath", action: viewModel.rotateRelayPairing)
+                }
+
+                if viewModel.relayHostMode == "lan", viewModel.relayLANIPv4 == nil {
+                    Text("No LAN IP found. The URI is using localhost.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                if !viewModel.relayServerRunning {
+                    Text("Start Mac Relay to generate a usable QR and URI.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textMuted)
+                }
+            }
+            .padding(10)
+            .background(Theme.bgTertiary)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
 }
