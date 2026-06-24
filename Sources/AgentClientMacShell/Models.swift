@@ -414,6 +414,13 @@ final class MacShellViewModel: ObservableObject {
         """
     }
 
+    var relayPairingURI: String {
+        guard relayServerRunning, let pairing = relayHTTPServer.pairingPayload else {
+            return "macrelay://pair?host=127.0.0.1&port=48731&claim="
+        }
+        return RelayPairingURI(payload: pairing).uriString
+    }
+
     func rotateRelayPairing() {
         relayHTTPServer.rotatePairingToken()
         relayStatusText = "Pairing rotated port=\(relayServerPort)"

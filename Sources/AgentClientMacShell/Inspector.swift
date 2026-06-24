@@ -104,36 +104,52 @@ struct Inspector: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
 
-            InspectorSection(title: "Pairing") {
-                VStack(alignment: .leading, spacing: 8) {
-                    #if os(macOS)
-                    if let qrImage = viewModel.relayPairingQRImage {
-                        Image(nsImage: qrImage)
-                            .resizable()
-                            .interpolation(.none)
-                            .frame(width: 120, height: 120)
-                    }
-                    #endif
-                    Text(viewModel.relayPairingDisplay)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Theme.textSecondary)
-                    HStack {
-                        FileActionButton(title: "Rotate", systemName: "arrow.triangle.2.circlepath", action: viewModel.rotateRelayPairing)
-                        Spacer()
-                    }
-                }
-                .padding(9)
-                .background(Theme.bgTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-
             InspectorSection(title: "Mac Relay") {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
+                    // 1. Pairing block — always visible at the top of Mac Relay section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("PAIRING").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.textMuted)
+
+                        #if os(macOS)
+                        if let qrImage = viewModel.relayPairingQRImage {
+                            Image(nsImage: qrImage)
+                                .resizable().interpolation(.none)
+                                .frame(width: 120, height: 120)
+                        }
+                        #endif
+
+                        Text(viewModel.relayPairingURI)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(Theme.textSecondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+
+                        HStack {
+                            Text("Host mode:").font(.system(size: 11))
+                            Picker("Host mode", selection: Binding(
+                                get: { viewModel.relayHostMode },
+                                set: { viewModel.setRelayHost(mode: $0) }
+                            )) {
+                                Text("Localhost").tag("local")
+                                Text("LAN").tag("lan")
+                            }
+                            .pickerStyle(.segmented).labelsHidden()
+                            Spacer()
+                            FileActionButton(title: "Rotate", systemName: "arrow.triangle.2.circlepath", action: viewModel.rotateRelayPairing)
+                        }
+                        if viewModel.relayHostMode == "lan", viewModel.relayLANIPv4 == nil {
+                            Text("⚠️ No LAN IP found — using localhost")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(9)
+                    .background(Theme.bgTertiary)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                    // 2. Relay status & controls
                     HStack {
-                        StatusPill(
-                            text: viewModel.relayServerRunning ? "Running" : "Stopped",
-                            tone: viewModel.relayServerRunning ? .success : .warning
-                        )
+                        StatusPill(text: viewModel.relayServerRunning ? "Running" : "Stopped",
+                                   tone: viewModel.relayServerRunning ? .success : .warning)
                         if viewModel.relayServerRunning {
                             StatusPill(text: "\(viewModel.relayServerHost):\(viewModel.relayServerPort)", tone: .accent)
                         }
@@ -143,25 +159,7 @@ struct Inspector: View {
                     if let error = viewModel.relayServerLastError {
                         Text("Error: \(error)")
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(Theme.error)
-                            .lineLimit(2)
-                    }
-                    HStack {
-                        Text("Host mode:").font(.system(size: 11))
-                        Picker("Host mode", selection: Binding(
-                            get: { viewModel.relayHostMode },
-                            set: { viewModel.setRelayHost(mode: $0) }
-                        )) {
-                            Text("Localhost").tag("local")
-                            Text("LAN").tag("lan")
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        Spacer()
-                    }
-                    if viewModel.relayHostMode == "lan", viewModel.relayLANIPv4 == nil {
-                        Text("⚠️ No LAN IP found — using localhost")
-                            .font(.caption).foregroundStyle(.orange)
+                            .foregroundStyle(Theme.error).lineLimit(2)
                     }
                     KeyValue("Host", viewModel.relayServerHost)
                     KeyValue("Port", viewModel.relayServerRunning ? "\(viewModel.relayServerPort)" : "-")
@@ -171,8 +169,7 @@ struct Inspector: View {
                     KeyValue("Pending", "\(viewModel.relaySnapshot.pendingApprovals.filter(\.isPending).count)")
                     Text(viewModel.relayStatusText)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(1)
+                        .foregroundStyle(Theme.textSecondary).lineLimit(1)
                     HStack {
                         if viewModel.relayServerRunning {
                             FileActionButton(title: "Stop", systemName: "stop", role: .destructive, action: viewModel.stopRelayServer)
