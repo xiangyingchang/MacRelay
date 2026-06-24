@@ -1,0 +1,180 @@
+// !$*UTF8*$!
+{
+    archiveVersion = 1;
+    classes = {};
+    objectVersion = 60;
+    objects = {
+
+/* Begin PBXBuildFile section */
+        7EFE500E5FD69B15804E755D /* AppEntry.swift */ = {isa = PBXBuildFile; fileRef = E8D62AE5C0A9C10F7F52CA4A; };
+        A340187C519A512984FB12CA /* Info.plist */ = {isa = PBXBuildFile; fileRef = 505A6B84EDF6A46EB3D10AE0; };
+        01EF5FDE32DAA6BB80B03E45 /* AgentClientCore */ = {isa = PBXBuildFile; productRef = 32E325A0F360C4AD9BCFFF02; };
+        63886E20E5E9247BC1D42720 /* AgentClientIO */ = {isa = PBXBuildFile; productRef = 8B95541ECED93AF69867A51A; };
+        B9A7D1B7132B647000489574 /* AgentClientiOS */ = {isa = PBXBuildFile; productRef = 2B2995099780F8AD3A8959CD; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+        E8D62AE5C0A9C10F7F52CA4A /* AppEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntry.swift; sourceTree = "<group>"; };
+        505A6B84EDF6A46EB3D10AE0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+        4F6027D858B72CC70E5CC8E9 /* MacRelayiOSApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacRelayiOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+        EDA6D6223944636B9C5B54AA = {
+            isa = PBXGroup;
+            children = (
+                BCE16DD0260827ECF338C787 /* Sources */,
+                288537F98DBE021E1CBA5E55 /* Packages */,
+                FBDC4F23F93125BBEEAE800C /* Products */,
+            );
+            sourceTree = "<group>";
+        };
+        BCE16DD0260827ECF338C787 = {
+            isa = PBXGroup;
+            children = (E8D62AE5C0A9C10F7F52CA4A, 505A6B84EDF6A46EB3D10AE0);
+            path = Sources;
+            sourceTree = "<group>";
+        };
+        288537F98DBE021E1CBA5E55 = {
+            isa = PBXGroup;
+            children = ();
+            name = Packages;
+            sourceTree = SOURCE_ROOT;
+        };
+        FBDC4F23F93125BBEEAE800C = {
+            isa = PBXGroup;
+            children = (4F6027D858B72CC70E5CC8E9);
+            name = Products;
+            sourceTree = "<group>";
+        };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+        4F6027D858B72CC70E5CC8E9 = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = 12D04EAA9B7F92E20B86C211;
+            buildPhases = (E289B1FE398F6A18B19D5D7C, F01580CCB5F725E4E879D491, 963488E8A773A44C9A5DC523);
+            buildRules = ();
+            dependencies = ();
+            name = MacRelayiOSApp;
+            packageProductDependencies = (32E325A0F360C4AD9BCFFF02, 8B95541ECED93AF69867A51A, 2B2995099780F8AD3A8959CD);
+            productName = MacRelayiOSApp;
+            productReference = 4F6027D858B72CC70E5CC8E9;
+            productType = "com.apple.product-type.application";
+        };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+        98F54143AB4E86B28C3AFEE0 = {
+            isa = PBXProject;
+            attributes = {
+                BuildIndependentTargetsInParallel = 1;
+                LastSwiftUpdateCheck = 1620;
+                LastUpgradeCheck = 1620;
+            };
+            buildConfigurationList = F081215BB71916C081E9FF1C;
+            compatibilityVersion = "Xcode 14.0";
+            developmentRegion = en;
+            hasScannedForEncodings = 0;
+            knownRegions = (en, Base);
+            mainGroup = EDA6D6223944636B9C5B54AA;
+            packageReferences = (374411615E9177D97E9E206A);
+            productRefGroup = FBDC4F23F93125BBEEAE800C;
+            projectDirPath = "";
+            projectRoot = "";
+            targets = (4F6027D858B72CC70E5CC8E9);
+        };
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+        E289B1FE398F6A18B19D5D7C = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (7EFE500E5FD69B15804E755D); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXFrameworksBuildPhase section */
+        F01580CCB5F725E4E879D491 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (01EF5FDE32DAA6BB80B03E45, 63886E20E5E9247BC1D42720, B9A7D1B7132B647000489574); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+        963488E8A773A44C9A5DC523 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A340187C519A512984FB12CA); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+        D6F10006F80D04E1720B389F = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES;
+                COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES;
+                ENABLE_USER_SCRIPT_SANDBOXING = NO; GCC_DYNAMIC_NO_PIC = NO; GCC_OPTIMIZATION_LEVEL = 0;
+                IPHONEOS_DEPLOYMENT_TARGET = 17.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos;
+                SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+            };
+            name = Debug;
+        };
+        FD0A5FA395270FB880AA3548 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES;
+                COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+                ENABLE_NS_ASSERTIONS = NO; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos;
+                SWIFT_COMPILATION_MODE = wholemodule; VALIDATE_PRODUCT = YES;
+            };
+            name = Release;
+        };
+        C04B9FE62C59E3D8C4B43BE4 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                CURRENT_PROJECT_VERSION = 1;
+                DEVELOPMENT_TEAM = "";
+                INFOPLIST_FILE = Sources/Info.plist;
+                IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+                MARKETING_VERSION = 0.1.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.xiangyingchang.macrelay;
+                PRODUCT_NAME = MacRelayiOSApp;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+            };
+            name = Debug;
+        };
+        B82617E99FBCD53BB0059C00 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                CURRENT_PROJECT_VERSION = 1;
+                DEVELOPMENT_TEAM = "";
+                INFOPLIST_FILE = Sources/Info.plist;
+                IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+                MARKETING_VERSION = 0.1.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.xiangyingchang.macrelay;
+                PRODUCT_NAME = MacRelayiOSApp;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+            };
+            name = Release;
+        };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+        F081215BB71916C081E9FF1C = {isa = XCConfigurationList; buildConfigurations = (D6F10006F80D04E1720B389F, FD0A5FA395270FB880AA3548); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+        12D04EAA9B7F92E20B86C211 = {isa = XCConfigurationList; buildConfigurations = (C04B9FE62C59E3D8C4B43BE4, B82617E99FBCD53BB0059C00); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+        374411615E9177D97E9E206A = {
+            isa = XCLocalSwiftPackageReference;
+            relativePath = ../..;
+        };
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+        32E325A0F360C4AD9BCFFF02 = {isa = XCSwiftPackageProductDependency; package = 374411615E9177D97E9E206A; productName = AgentClientCore; };
+        8B95541ECED93AF69867A51A = {isa = XCSwiftPackageProductDependency; package = 374411615E9177D97E9E206A; productName = AgentClientIO; };
+        2B2995099780F8AD3A8959CD = {isa = XCSwiftPackageProductDependency; package = 374411615E9177D97E9E206A; productName = AgentClientiOS; };
+/* End XCSwiftPackageProductDependency section */
+    };
+    rootObject = 98F54143AB4E86B28C3AFEE0;
+}

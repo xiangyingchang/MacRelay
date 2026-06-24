@@ -49,8 +49,8 @@ scripts/check.sh
 
 ## Quick Start (Real Device)
 
-# Open in Xcode, select MacRelayiOS scheme, Personal Team, Run
-open Package.swift
+# Open Xcode App project (includes signing/provisioning)
+open Apps/MacRelayiOSApp/MacRelayiOSApp.xcodeproj
 scripts/build-ios-device.sh  # prints step-by-step guidance
 ```
 
