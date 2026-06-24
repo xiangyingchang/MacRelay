@@ -4,6 +4,10 @@ set -euo pipefail
 # Build the MacRelay iOS app for simulator and launch it.
 # Requires Xcode with iOS 17+ simulator runtime installed.
 #
+# For real device deployment, open Package.swift in Xcode,
+# select the MacRelayiOS scheme, choose your Personal Team,
+# and Run (⌘R).
+#
 # Usage:
 #   ./scripts/build-ios.sh
 
@@ -12,6 +16,7 @@ SDK="iphonesimulator"
 TRIPLE="x86_64-apple-ios17.0-simulator"
 DEVICE_NAME="iPhone 17"
 DEST="platform=iOS Simulator,name=$DEVICE_NAME"
+BUNDLE_ID="com.xiangyingchang.macrelay"
 
 # Check SDK availability
 echo "==> Checking SDK: $SDK"
@@ -50,53 +55,18 @@ if [ -f "$BIN" ]; then
     echo "==> Creating .app bundle"
     mkdir -p "$APP_BUNDLE"
     cp "$BIN" "$APP_BUNDLE/$PRODUCT"
+    cp "Sources/${PRODUCT}/Info.plist" "$APP_BUNDLE/Info.plist"
 
-    cat > "$APP_BUNDLE/Info.plist" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>MacRelayiOS</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.macrelay.ios</string>
-    <key>CFBundleName</key>
-    <string>MacRelay</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>MinimumOSVersion</key>
-    <string>17.0</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-    <key>UILaunchStoryboardName</key>
-    <string>LaunchScreen</string>
-    <key>UIRequiredDeviceCapabilities</key>
-    <array><string>arm64</string></array>
-    <key>UISupportedInterfaceOrientations</key>
-    <array><string>UIInterfaceOrientationPortrait</string></array>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>com.macrelay.ios</string>
-            <key>CFBundleURLSchemes</key>
-            <array><string>macrelay</string></array>
-        </dict>
-    </array>
-</dict>
-</plist>
-EOF
+    echo "==> Ad-hoc codesigning for simulator"
+    codesign -s - --entitlements - "$APP_BUNDLE" <<< '<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>' 2>/dev/null || true
 
     echo "==> Launching in simulator"
     xcrun simctl boot "$DEST" 2>/dev/null || true
     open -a Simulator
     xcrun simctl install booted "$APP_BUNDLE"
-    xcrun simctl launch booted com.macrelay.ios
+    xcrun simctl launch booted "$BUNDLE_ID"
 else
     echo "ERROR: Binary not found at $BIN"
     echo "For a full iOS app experience, open this package in Xcode:"

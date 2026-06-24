@@ -45,7 +45,13 @@ scripts/check.sh
 scripts/build-ios.sh
 
 # Or the check script auto-detects simulator:
-scripts/check.sh   # includes iOS build step if SDK available
+scripts/check.sh
+
+## Quick Start (Real Device)
+
+# Open in Xcode, select MacRelayiOS scheme, Personal Team, Run
+open Package.swift
+scripts/build-ios-device.sh  # prints step-by-step guidance
 ```
 
 ## Pairing Flow

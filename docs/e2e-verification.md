@@ -9,6 +9,8 @@
 - Codex CLI 已安装（`~/.npm-global/bin/codex`）
 - 本仓库位于 `/private/tmp/MacRelay`
 - **真机配对需要**：Mac 和 iPhone 连接同一 Wi‑Fi；Mac 防火墙允许 `AgentClientMacShell` 入站连接；Mac Inspector 中 Host mode 设为 "LAN"
+- **真机部署**：必须通过 Xcode 打开 `Package.swift`，选择 MacRelayiOS scheme + iPhone destination + Personal Team 签名，直接 Run 即可。SwiftPM CLI 不支持真机 codesign。
+  - 详细步骤见 `scripts/build-ios-device.sh`
 
 ## Step 1 — 启动 Mac Relay
 
