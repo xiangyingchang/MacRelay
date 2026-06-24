@@ -5,7 +5,7 @@ public enum MockSnapshotFactory {
         deviceID: String = "local-mock",
         macName: String? = {
             #if os(macOS)
-            return Host.current().localizedName
+            return ProcessInfo.processInfo.hostName
             #else
             return nil
             #endif

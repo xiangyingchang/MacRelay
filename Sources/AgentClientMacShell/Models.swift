@@ -18,7 +18,7 @@ final class MacShellViewModel: ObservableObject {
     let relayService = MacRelayService(
         connection: ConnectionSnapshotPayload(
             deviceID: "local-mac-ui",
-            macName: Host.current().localizedName ?? "Mac",
+            macName: ProcessInfo.processInfo.hostName,
             isPaired: true,
             isOnline: true
         )
