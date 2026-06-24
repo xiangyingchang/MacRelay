@@ -18,6 +18,8 @@ public final class RelayClientViewModel: ObservableObject {
     private let wsClient = RelayWebSocketClient()
     private var token: String?
     private let credentialStore: PairingCredentialStore
+    private var pairedHost: String?
+    private var pairedPort: UInt16?
 
     public var hasCredentials: Bool { credentialStore.token != nil }
     public var currentState: MobileClientState { stateMachine.state }
@@ -50,6 +52,8 @@ public final class RelayClientViewModel: ObservableObject {
         let pairing = try await client.getPairing()
         pairingCode = pairing.token
         token = pairing.token
+        pairedHost = host
+        pairedPort = port
         wsClient.connect(host: host, port: port)
         try await wsClient.authenticate(token: pairing.token)
         guard stateMachine.pairSuccess() else { return }
@@ -61,7 +65,7 @@ public final class RelayClientViewModel: ObservableObject {
     /// Claim a pairing from a raw JSON payload string (pasted from Mac Inspector).
     /// Saves device credential to local memory store.
     public func claimFromPayload(_ jsonString: String) async throws {
-        guard let uri = RelayPairingURI.detect(jsonString) else { return }
+        guard let uri = RelayPairingURI.detect(jsonString) else { throw RelayClientError.invalidPairingInput }
         guard stateMachine.attemptPairing() else { return }
         let client = RelayHTTPClient(host: uri.host, port: uri.port)
 
@@ -69,9 +73,12 @@ public final class RelayClientViewModel: ObservableObject {
         let claimed = try await client.claimPairing(claim: uri.claim)
         pairingCode = claimed.claim
         token = claimed.token
+        pairedHost = uri.host
+        pairedPort = uri.port
         isConnecting = true
+        defer { isConnecting = false }
 
-        if let deviceID = claimed.deviceID, let deviceSecret = claimed.deviceSecret {
+        if claimed.deviceID != nil, claimed.deviceSecret != nil {
             try? credentialStore.store(token: claimed.token, claim: claimed.claim, expiresAt: claimed.expiresAt)
         }
 
@@ -107,10 +114,12 @@ public final class RelayClientViewModel: ObservableObject {
     }
 
     public func reconnect() async {
-        guard let token, let host = httpClient?.baseURL.host, let port = httpClient?.baseURL.port else { return }
+        guard let token,
+              let host = pairedHost ?? httpClient?.baseURL.host,
+              let port = pairedPort ?? httpClient?.baseURL.port.flatMap({ UInt16(exactly: $0) }) else { return }
         guard stateMachine.startReconnect() else { return }
         connectionStatus = "Reconnecting..."
-        wsClient.connect(host: host, port: UInt16(port))
+        wsClient.connect(host: host, port: port)
         do {
             try await wsClient.authenticate(token: token)
             guard stateMachine.connected() else { return }

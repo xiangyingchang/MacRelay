@@ -1,56 +1,162 @@
 import AgentClientCore
 import SwiftUI
 
+#if os(iOS)
+import AVFoundation
+import UIKit
+#endif
+
 public struct PairingView: View {
     @ObservedObject var viewModel: RelayClientViewModel
     @State private var host = ""
     @State private var portText = ""
-    @State private var payloadText = ""
+    @State private var pairingInput = ""
     @State private var claimError: String?
+    @State private var showingScanner = false
 
     public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
 
     public var body: some View {
-        VStack(spacing: 16) {
-            Text("Connect to Mac Relay").font(.title2)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Pair with Mac")
+                            .font(.largeTitle.bold())
+                        Text(viewModel.connectionStatus)
+                            .font(.subheadline)
+                            .foregroundStyle(viewModel.heartbeatOnline ? .green : .secondary)
+                    }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Paste pairing payload or URI").font(.caption).foregroundStyle(.secondary)
-                TextField("{\"host\": ...}", text: $payloadText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder).lineLimit(4)
-                    .font(.system(size: 11, design: .monospaced))
-                Button("Claim") {
-                    claimError = nil
-                    Task {
-                        do { try await viewModel.claimFromPayload(payloadText) }
-                        catch { claimError = error.localizedDescription }
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Paste Pairing URI")
+                            .font(.headline)
+                        TextEditor(text: $pairingInput)
+                            .font(.system(size: 13, design: .monospaced))
+                            .frame(minHeight: 116)
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.10))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 0.5)
+                            }
+                            .autocorrectionDisabled()
+
+                        HStack(spacing: 10) {
+                            Button {
+                                claimError = nil
+                                pastePairingInput()
+                            } label: {
+                                Label("Paste", systemImage: "doc.on.clipboard")
+                            }
+                            .buttonStyle(.bordered)
+
+                            #if os(iOS)
+                            Button {
+                                claimError = nil
+                                showingScanner = true
+                            } label: {
+                                Label("Scan QR", systemImage: "qrcode.viewfinder")
+                            }
+                            .buttonStyle(.bordered)
+                            #endif
+                        }
+
+                        Button {
+                            claimCurrentInput()
+                        } label: {
+                            Label(viewModel.isConnecting ? "Connecting..." : "Claim & Connect", systemImage: "link")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isConnecting)
+
+                        if let claimError {
+                            Text(claimError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding()
+                    .background(Color.secondary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Manual Host")
+                            .font(.headline)
+                        TextField("Mac LAN IP, e.g. 192.168.1.8", text: $host)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                        TextField("Port", text: $portText)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            guard let port = UInt16(portText), !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                            Task { try? await viewModel.pair(host: host.trimmingCharacters(in: .whitespacesAndNewlines), port: port) }
+                        } label: {
+                            Label("Connect by Host", systemImage: "network")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding()
+                    .background(Color.secondary.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    if !viewModel.pairingCode.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Saved Pairing")
+                                .font(.headline)
+                            Text("\(viewModel.pairingCode.prefix(16))...")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                            Button("Clear Pairing", role: .destructive) { viewModel.clearPairing() }
+                                .buttonStyle(.bordered)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                 }
-                .buttonStyle(.borderedProminent).disabled(payloadText.isEmpty)
-                if let claimError { Text(claimError).font(.caption).foregroundStyle(.red) }
+                .padding()
             }
-
-            Divider()
-
-            TextField("Host", text: $host).textFieldStyle(.roundedBorder)
-            TextField("Port", text: $portText).textFieldStyle(.roundedBorder)
-            Button("Pair") {
-                guard let port = UInt16(portText), !host.isEmpty else { return }
-                Task { try? await viewModel.pair(host: host, port: port) }
+            .background(Color.secondary.opacity(0.04))
+            .navigationTitle("Pairing")
+            #if os(iOS)
+            .sheet(isPresented: $showingScanner) {
+                QRScannerView { code in
+                    pairingInput = code
+                    showingScanner = false
+                    claimCurrentInput()
+                } onError: { message in
+                    claimError = message
+                    showingScanner = false
+                }
             }
-            .buttonStyle(.borderedProminent)
-
-            if !viewModel.pairingCode.isEmpty {
-                Text("Pairing: \(viewModel.pairingCode.prefix(16))...")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Clear Pairing", role: .destructive) { viewModel.clearPairing() }
-                    .buttonStyle(.bordered)
-            }
-        }.padding()
+            #endif
+        }
     }
 
     public func handleURL(_ url: URL) {
         Task { try? await viewModel.claimFromURL(url) }
+    }
+
+    private func pastePairingInput() {
+        #if os(iOS)
+        pairingInput = UIPasteboard.general.string ?? pairingInput
+        #endif
+    }
+
+    private func claimCurrentInput() {
+        let input = pairingInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return }
+        claimError = nil
+        Task {
+            do { try await viewModel.claimFromPayload(input) }
+            catch { claimError = error.localizedDescription }
+        }
     }
 }
 
@@ -151,3 +257,115 @@ public struct EventReplayListView: View {
         }.padding()
     }
 }
+
+#if os(iOS)
+private struct QRScannerView: UIViewControllerRepresentable {
+    let onCode: (String) -> Void
+    let onError: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCode: onCode)
+    }
+
+    func makeUIViewController(context: Context) -> QRScannerViewController {
+        let controller = QRScannerViewController()
+        controller.delegate = context.coordinator
+        controller.onError = onError
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QRScannerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+        private let onCode: (String) -> Void
+        private var didScan = false
+
+        init(onCode: @escaping (String) -> Void) {
+            self.onCode = onCode
+        }
+
+        func metadataOutput(
+            _ output: AVCaptureMetadataOutput,
+            didOutput metadataObjects: [AVMetadataObject],
+            from connection: AVCaptureConnection
+        ) {
+            guard !didScan,
+                  let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+                  object.type == .qr,
+                  let value = object.stringValue else { return }
+            didScan = true
+            onCode(value)
+        }
+    }
+}
+
+private final class QRScannerViewController: UIViewController {
+    weak var delegate: AVCaptureMetadataOutputObjectsDelegate?
+    var onError: ((String) -> Void)?
+
+    private let session = AVCaptureSession()
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        configureCameraAccess()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer?.frame = view.bounds
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if session.isRunning {
+            session.stopRunning()
+        }
+    }
+
+    private func configureCameraAccess() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            setupScanner()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    granted ? self?.setupScanner() : self?.onError?("Camera access denied.")
+                }
+            }
+        default:
+            onError?("Camera access denied. Enable camera permission in Settings.")
+        }
+    }
+
+    private func setupScanner() {
+        guard let device = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            onError?("Camera is unavailable.")
+            return
+        }
+
+        let output = AVCaptureMetadataOutput()
+        guard session.canAddInput(input), session.canAddOutput(output) else {
+            onError?("QR scanner cannot start.")
+            return
+        }
+
+        session.addInput(input)
+        session.addOutput(output)
+        output.setMetadataObjectsDelegate(delegate, queue: .main)
+        output.metadataObjectTypes = [.qr]
+
+        let preview = AVCaptureVideoPreviewLayer(session: session)
+        preview.videoGravity = .resizeAspectFill
+        preview.frame = view.bounds
+        view.layer.addSublayer(preview)
+        previewLayer = preview
+
+        DispatchQueue.global(qos: .userInitiated).async { [session] in
+            session.startRunning()
+        }
+    }
+}
+#endif

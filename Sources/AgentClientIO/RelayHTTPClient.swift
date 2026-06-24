@@ -48,11 +48,12 @@ public struct RelayHTTPClient {
     }
 }
 
-public enum RelayClientError: Error, CustomStringConvertible {
+public enum RelayClientError: Error, CustomStringConvertible, LocalizedError {
     case httpError(status: Int)
     case wsError(String)
     case authFailed(String)
     case challengeFailed(String)
+    case invalidPairingInput
 
     public var description: String {
         switch self {
@@ -60,8 +61,11 @@ public enum RelayClientError: Error, CustomStringConvertible {
         case .wsError: return "WebSocket error"
         case .authFailed: return "Auth failed"
         case .challengeFailed: return "Challenge failed"
+        case .invalidPairingInput: return "Invalid pairing URI or payload"
         }
     }
+
+    public var errorDescription: String? { description }
 
     /// Error code suitable for UI display (safe, no context leak).
     public var code: String {
@@ -70,6 +74,7 @@ public enum RelayClientError: Error, CustomStringConvertible {
         case .wsError: return RelayErrorCode.generalError.code
         case .authFailed: return RelayErrorCode.authInvalid.code
         case .challengeFailed: return RelayErrorCode.authInvalid.code
+        case .invalidPairingInput: return RelayErrorCode.generalError.code
         }
     }
 }
