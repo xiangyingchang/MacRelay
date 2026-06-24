@@ -20,9 +20,9 @@ PG = gid("products")
 SG = gid("sources")
 SPMG = gid("spmgroup")
 AT = gid("apptarget")
+APF = gid("appproductfile")
 AEB = gid("appentrybuild")
 AEF = gid("appentryfile")
-IPB = gid("infoplistbuild")
 IPF = gid("infoplist")
 DC = gid("debugconfig")
 RC = gid("releaseconfig")
@@ -56,7 +56,6 @@ with open(pbxproj, "w") as f:
 
 /* Begin PBXBuildFile section */
         {AEB} /* AppEntry.swift */ = {{isa = PBXBuildFile; fileRef = {AEF}; }};
-        {IPB} /* Info.plist */ = {{isa = PBXBuildFile; fileRef = {IPF}; }};
         {BFC} /* AgentClientCore */ = {{isa = PBXBuildFile; productRef = {PDC}; }};
         {BFI} /* AgentClientIO */ = {{isa = PBXBuildFile; productRef = {PDI}; }};
         {BFS} /* AgentClientiOS */ = {{isa = PBXBuildFile; productRef = {PDS}; }};
@@ -65,7 +64,7 @@ with open(pbxproj, "w") as f:
 /* Begin PBXFileReference section */
         {AEF} /* AppEntry.swift */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntry.swift; sourceTree = "<group>"; }};
         {IPF} /* Info.plist */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; }};
-        {AT} /* MacRelayiOSApp.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacRelayiOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; }};
+        {APF} /* MacRelayiOSApp.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacRelayiOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; }};
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -92,7 +91,7 @@ with open(pbxproj, "w") as f:
         }};
         {PG} = {{
             isa = PBXGroup;
-            children = ({AT});
+            children = ({APF});
             name = Products;
             sourceTree = "<group>";
         }};
@@ -108,7 +107,7 @@ with open(pbxproj, "w") as f:
             name = MacRelayiOSApp;
             packageProductDependencies = ({PDC}, {PDI}, {PDS});
             productName = MacRelayiOSApp;
-            productReference = {AT};
+            productReference = {APF};
             productType = "com.apple.product-type.application";
         }};
 /* End PBXNativeTarget section */
@@ -144,7 +143,7 @@ with open(pbxproj, "w") as f:
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
-        {RPH} = {{isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({IPB}); runOnlyForDeploymentPostprocessing = 0; }};
+        {RPH} = {{isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; }};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -252,7 +251,11 @@ struct MacRelayiOSAppEntry: App {
                 EventReplayListView(viewModel: viewModel)
                     .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
             }
-            .onOpenURL { url in viewModel.claimFromURL(url) }
+            .onOpenURL { url in
+                Task {
+                    try? await viewModel.claimFromURL(url)
+                }
+            }
         }
     }
 }
@@ -274,6 +277,7 @@ with open(plist, "w") as f:
     <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
+    <key>UIRequiresFullScreen</key><true/>
     <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
     <key>CFBundleURLTypes</key><array><dict>

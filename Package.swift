@@ -54,7 +54,8 @@ let package = Package(
         ),
         .executableTarget(
             name: "MacRelayiOS",
-            dependencies: ["AgentClientIO", "AgentClientiOS"]
+            dependencies: ["AgentClientIO", "AgentClientiOS"],
+            exclude: ["Info.plist"]
         ),
         .executableTarget(
             name: "AgentClientMacMock",

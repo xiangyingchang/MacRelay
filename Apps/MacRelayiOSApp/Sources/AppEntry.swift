@@ -17,7 +17,11 @@ struct MacRelayiOSAppEntry: App {
                 EventReplayListView(viewModel: viewModel)
                     .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
             }
-            .onOpenURL { url in viewModel.claimFromURL(url) }
+            .onOpenURL { url in
+                Task {
+                    try? await viewModel.claimFromURL(url)
+                }
+            }
         }
     }
 }

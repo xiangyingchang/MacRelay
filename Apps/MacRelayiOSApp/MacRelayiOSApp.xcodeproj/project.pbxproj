@@ -7,7 +7,6 @@
 
 /* Begin PBXBuildFile section */
         7EFE500E5FD69B15804E755D /* AppEntry.swift */ = {isa = PBXBuildFile; fileRef = E8D62AE5C0A9C10F7F52CA4A; };
-        A340187C519A512984FB12CA /* Info.plist */ = {isa = PBXBuildFile; fileRef = 505A6B84EDF6A46EB3D10AE0; };
         01EF5FDE32DAA6BB80B03E45 /* AgentClientCore */ = {isa = PBXBuildFile; productRef = 32E325A0F360C4AD9BCFFF02; };
         63886E20E5E9247BC1D42720 /* AgentClientIO */ = {isa = PBXBuildFile; productRef = 8B95541ECED93AF69867A51A; };
         B9A7D1B7132B647000489574 /* AgentClientiOS */ = {isa = PBXBuildFile; productRef = 2B2995099780F8AD3A8959CD; };
@@ -16,7 +15,7 @@
 /* Begin PBXFileReference section */
         E8D62AE5C0A9C10F7F52CA4A /* AppEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntry.swift; sourceTree = "<group>"; };
         505A6B84EDF6A46EB3D10AE0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-        4F6027D858B72CC70E5CC8E9 /* MacRelayiOSApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacRelayiOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+        56A2688717E6A0369FDE697B /* MacRelayiOSApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacRelayiOSApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -43,7 +42,7 @@
         };
         FBDC4F23F93125BBEEAE800C = {
             isa = PBXGroup;
-            children = (4F6027D858B72CC70E5CC8E9);
+            children = (56A2688717E6A0369FDE697B);
             name = Products;
             sourceTree = "<group>";
         };
@@ -59,7 +58,7 @@
             name = MacRelayiOSApp;
             packageProductDependencies = (32E325A0F360C4AD9BCFFF02, 8B95541ECED93AF69867A51A, 2B2995099780F8AD3A8959CD);
             productName = MacRelayiOSApp;
-            productReference = 4F6027D858B72CC70E5CC8E9;
+            productReference = 56A2688717E6A0369FDE697B;
             productType = "com.apple.product-type.application";
         };
 /* End PBXNativeTarget section */
@@ -95,7 +94,7 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
-        963488E8A773A44C9A5DC523 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A340187C519A512984FB12CA); runOnlyForDeploymentPostprocessing = 0; };
+        963488E8A773A44C9A5DC523 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
