@@ -23,6 +23,7 @@ public struct RelayHTTPReplayPayload: Codable {
 public struct RelayPairingPayload: Codable, Equatable {
     public let host: String
     public let port: UInt16
+    public let wsPort: UInt16?
     public let token: String
     public let claim: String
     public let protocolVersion: Int
@@ -34,6 +35,7 @@ public struct RelayPairingPayload: Codable, Equatable {
     public init(
         host: String,
         port: UInt16,
+        wsPort: UInt16? = nil,
         token: String,
         claim: String,
         protocolVersion: Int = RelayProtocolVersion.current,
@@ -44,6 +46,7 @@ public struct RelayPairingPayload: Codable, Equatable {
     ) {
         self.host = host
         self.port = port
+        self.wsPort = wsPort
         self.token = token
         self.claim = claim
         self.protocolVersion = protocolVersion
@@ -104,6 +107,8 @@ public final class MacRelayHTTPServer {
         pairingToken
     }
 
+    public var wsServerPort: UInt16?
+
     public var claim: String {
         pairingClaim
     }
@@ -117,6 +122,7 @@ public final class MacRelayHTTPServer {
         return RelayPairingPayload(
             host: host,
             port: port,
+            wsPort: wsServerPort,
             token: pairingToken,
             claim: pairingClaim,
             expiresAt: pairingExpiresAt,

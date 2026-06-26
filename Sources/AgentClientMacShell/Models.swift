@@ -45,6 +45,7 @@ final class MacShellViewModel: ObservableObject {
     private let relayServerConfigKey = "MacRelayHTTPServerEnabled"
     private let relayHostModeConfigKey = "MacRelayHostMode"
     private lazy var relayHTTPServer = MacRelayHTTPServer(relayService: relayService)
+    private lazy var relayWSServer = MacRelayWebSocketServer(relayService: relayService)
     @Published var runtimeMode: RuntimeMode = .mock
     @Published var activeRunID = "run-polish"
     @Published var activeNav = "Codex"
@@ -406,6 +407,7 @@ final class MacShellViewModel: ObservableObject {
         return """
         host: \(pairing.host)
         port: \(pairing.port)
+        wsPort: \(pairing.wsPort ?? pairing.port)
         token: \(pairing.token.prefix(16))...
         claim: \(pairing.claim.prefix(16))...
         deviceID: \(pairing.deviceID ?? "-")
@@ -469,6 +471,8 @@ final class MacShellViewModel: ObservableObject {
         relayServerLastError = nil
         do {
             try relayHTTPServer.start(host: relayServerHost, port: 0)
+            try relayWSServer.start(host: relayServerHost, port: 0)
+            relayHTTPServer.wsServerPort = relayWSServer.port
             relayServerRunning = true
             relayServerPort = relayHTTPServer.port ?? 0
             relayServerConfiguredToStart = true
@@ -490,6 +494,7 @@ final class MacShellViewModel: ObservableObject {
 
     func stopRelayServer() {
         relayHTTPServer.stop()
+        relayWSServer.stop()
         relayServerRunning = false
         relayServerPort = 0
         relayServerConfiguredToStart = false

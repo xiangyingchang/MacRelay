@@ -55,7 +55,7 @@ public final class RelayClientViewModel: ObservableObject {
         token = pairing.token
         pairedHost = host
         pairedPort = port
-        wsClient.connect(host: host, port: port)
+        wsClient.connect(host: host, port: pairing.wsPort ?? port)
         try await wsClient.authenticate(token: pairing.token)
         guard stateMachine.pairSuccess() else { return }
         guard stateMachine.startConnect() else { return }
@@ -88,7 +88,7 @@ public final class RelayClientViewModel: ObservableObject {
             try? credentialStore.store(token: claimed.token, claim: claimed.claim, expiresAt: claimed.expiresAt)
         }
 
-        wsClient.connect(host: uri.host, port: uri.port)
+        wsClient.connect(host: uri.host, port: claimed.wsPort ?? uri.port)
         do {
             try await wsClient.authenticate(token: claimed.token)
             guard stateMachine.pairSuccess() else { return }
