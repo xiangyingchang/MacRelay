@@ -22,7 +22,9 @@ public final class KeychainPairingCredentialStore: PairingCredentialStore {
 
     public init(storeID: String = "keychain-\(UUID().uuidString.prefix(8))") {
         self.storeID = storeID
-        try? reload()
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            try? self?.reload()
+        }
     }
 
     // MARK: - Persistence

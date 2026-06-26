@@ -19,5 +19,6 @@
         <key>CFBundleURLName</key><string>com.xiangyingchang.macrelay</string>
         <key>CFBundleURLSchemes</key><array><string>macrelay</string></array>
     </dict></array>
+    <key>UILaunchScreen</key><dict><key>UIColorName</key><string>systemBackground</string></dict>
 </dict>
 </plist>

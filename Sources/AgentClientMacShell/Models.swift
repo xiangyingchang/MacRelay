@@ -57,7 +57,7 @@ final class MacShellViewModel: ObservableObject {
     @Published var selectedFileID = "mac-shell"
     @Published var commandApprovalVisible = true
     @Published private(set) var commandLog: [RelayCommandLogEntry] = [
-        RelayCommandLogEntry(type: .sessionStart, detail: "session.start cwd=/private/tmp/AgentClientM1Prototype"),
+        RelayCommandLogEntry(type: .sessionStart, detail: "session.start cwd=/private/tmp/MacRelay"),
         RelayCommandLogEntry(type: .snapshotGet, detail: "snapshot.get seq=8")
     ]
 
@@ -202,7 +202,7 @@ final class MacShellViewModel: ObservableObject {
 
     /// CWD for the current project.
     var projectCWD: String {
-        "/private/tmp/AgentClientM1Prototype"
+        "/private/tmp/MacRelay"
     }
 
     /// Sandbox for thread/start. Codex app-server 0.141.0 expects kebab-case.
@@ -239,7 +239,7 @@ final class MacShellViewModel: ObservableObject {
         self.relayServerConfiguredToStart = UserDefaults.standard.bool(forKey: relayServerConfigKey)
         let lanIP = RelayHostDetector.primaryLANIPv4()
         self.relayLANIPv4 = lanIP
-        let savedMode = UserDefaults.standard.string(forKey: relayHostModeConfigKey) ?? "local"
+        let savedMode = UserDefaults.standard.string(forKey: relayHostModeConfigKey) ?? (lanIP == nil ? "local" : "lan")
         var hostMode = savedMode
         if hostMode == "lan", lanIP == nil {
             hostMode = "local"

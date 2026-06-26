@@ -16,7 +16,10 @@ public struct RelayHTTPClient {
     }
 
     public func claimPairing(claim: String) async throws -> RelayPairingPayload {
-        let data = try await get(path: "/pairing/claim?claim=\(claim)")
+        var components = URLComponents()
+        components.path = "/pairing/claim"
+        components.queryItems = [URLQueryItem(name: "claim", value: claim)]
+        let data = try await get(path: components.string ?? "/pairing/claim")
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(RelayPairingPayload.self, from: data)
