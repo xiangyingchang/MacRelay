@@ -12,6 +12,7 @@ public struct PairingView: View {
     @State private var portText = ""
     @State private var pairingInput = ""
     @State private var claimError: String?
+    @State private var isClaimingPairing = false
     @State private var showingScanner = false
 
     public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
@@ -66,11 +67,11 @@ public struct PairingView: View {
                         Button {
                             claimCurrentInput()
                         } label: {
-                            Label(viewModel.isConnecting ? "Connecting..." : "Claim & Connect", systemImage: "link")
+                            Label(viewModel.isConnecting || isClaimingPairing ? "Connecting..." : "Claim & Connect", systemImage: "link")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isConnecting)
+                        .disabled(pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isConnecting || isClaimingPairing)
 
                         if let claimError {
                             Text(claimError)
@@ -140,7 +141,7 @@ public struct PairingView: View {
     }
 
     public func handleURL(_ url: URL) {
-        Task { try? await viewModel.claimFromURL(url) }
+        claimPairing(url.absoluteString)
     }
 
     private func pastePairingInput() {
@@ -152,10 +153,26 @@ public struct PairingView: View {
     private func claimCurrentInput() {
         let input = pairingInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return }
+        claimPairing(input)
+    }
+
+    private func claimPairing(_ input: String) {
+        guard !isClaimingPairing else { return }
         claimError = nil
+        isClaimingPairing = true
         Task {
-            do { try await viewModel.claimFromPayload(input) }
-            catch { claimError = error.localizedDescription }
+            do {
+                try await viewModel.claimFromPayload(input)
+                claimError = nil
+                pairingInput = ""
+            } catch {
+                if viewModel.currentState == .connected {
+                    claimError = nil
+                } else {
+                    claimError = error.localizedDescription
+                }
+            }
+            isClaimingPairing = false
         }
     }
 }

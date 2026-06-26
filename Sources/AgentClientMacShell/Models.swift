@@ -45,7 +45,7 @@ final class MacShellViewModel: ObservableObject {
     private let relayServerConfigKey = "MacRelayHTTPServerEnabled"
     private let relayHostModeConfigKey = "MacRelayHostMode"
     private lazy var relayHTTPServer = MacRelayHTTPServer(relayService: relayService)
-    private lazy var relayWSServer = MacRelayWebSocketServer(relayService: relayService)
+    private var relayWSServer: MacRelayWebSocketServer?
     @Published var runtimeMode: RuntimeMode = .mock
     @Published var activeRunID = "run-polish"
     @Published var activeNav = "Codex"
@@ -425,6 +425,11 @@ final class MacShellViewModel: ObservableObject {
 
     func rotateRelayPairing() {
         relayHTTPServer.rotatePairingToken()
+        let wasRunning = relayServerRunning
+        if wasRunning {
+            stopRelayServer(persistConfigurationChange: false)
+            startRelayServer(persistConfiguration: false)
+        }
         relayStatusText = "Pairing rotated port=\(relayServerPort)"
         record(.settingsUpdate, "relay.pairing.rotate")
     }
@@ -470,10 +475,13 @@ final class MacShellViewModel: ObservableObject {
     func startRelayServer(persistConfiguration: Bool = true) {
         relayServerLastError = nil
         do {
+            relayWSServer?.stop()
             try relayHTTPServer.start(host: relayServerHost, port: 0)
-            try relayWSServer.start(host: relayServerHost, port: 0)
-            _ = relayWSServer.waitUntilReady(timeout: 2)
-            relayHTTPServer.wsServerPort = relayWSServer.port
+            let wsServer = MacRelayWebSocketServer(relayService: relayService, pairingToken: relayHTTPServer.token)
+            try wsServer.start(host: relayServerHost, port: 0)
+            _ = wsServer.waitUntilReady(timeout: 2)
+            relayWSServer = wsServer
+            relayHTTPServer.wsServerPort = wsServer.port
             relayServerRunning = true
             relayServerPort = relayHTTPServer.port ?? 0
             relayServerConfiguredToStart = true
@@ -494,12 +502,19 @@ final class MacShellViewModel: ObservableObject {
     }
 
     func stopRelayServer() {
+        stopRelayServer(persistConfigurationChange: true)
+    }
+
+    private func stopRelayServer(persistConfigurationChange: Bool) {
         relayHTTPServer.stop()
-        relayWSServer.stop()
+        relayWSServer?.stop()
+        relayWSServer = nil
         relayServerRunning = false
         relayServerPort = 0
         relayServerConfiguredToStart = false
-        UserDefaults.standard.set(false, forKey: relayServerConfigKey)
+        if persistConfigurationChange {
+            UserDefaults.standard.set(false, forKey: relayServerConfigKey)
+        }
         relayStatusText = "Relay stopped"
         record(.sessionStop, "relay.stop")
     }

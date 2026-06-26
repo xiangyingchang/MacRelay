@@ -216,6 +216,7 @@ struct Composer: View {
                         .foregroundStyle(Theme.textMuted)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
+                        .allowsHitTesting(false)  // don't block TextEditor focus
                 }
                 TextEditor(text: $viewModel.draftText)
                     .font(.system(size: 14))
@@ -225,7 +226,8 @@ struct Composer: View {
                     .padding(.vertical, 6)
                     .background(Color.clear)
             }
-            .frame(height: 56)
+            .frame(minHeight: 56)  // allow expansion
+            .frame(maxHeight: 120)
             .background(Theme.bgSecondary)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
