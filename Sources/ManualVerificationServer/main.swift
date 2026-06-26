@@ -13,6 +13,8 @@ Thread.sleep(forTimeInterval: 0.2)
 
 let wsServer = MacRelayWebSocketServer(relayService: service, pairingToken: httpServer.token)
 try wsServer.start(port: 48732)
+_ = wsServer.waitUntilReady(timeout: 2)
+httpServer.wsServerPort = wsServer.port
 Thread.sleep(forTimeInterval: 0.2)
 
 // Print pairing URI for the simulator

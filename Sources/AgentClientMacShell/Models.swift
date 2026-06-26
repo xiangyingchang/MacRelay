@@ -472,6 +472,7 @@ final class MacShellViewModel: ObservableObject {
         do {
             try relayHTTPServer.start(host: relayServerHost, port: 0)
             try relayWSServer.start(host: relayServerHost, port: 0)
+            _ = relayWSServer.waitUntilReady(timeout: 2)
             relayHTTPServer.wsServerPort = relayWSServer.port
             relayServerRunning = true
             relayServerPort = relayHTTPServer.port ?? 0
