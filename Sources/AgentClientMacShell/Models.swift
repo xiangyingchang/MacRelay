@@ -59,6 +59,8 @@ final class MacShellViewModel: ObservableObject {
     private var streamingTurnID: String?
     /// Previous assistant text length, to detect new delta content.
     private var lastAssistantTextLength = 0
+    /// True while a user-created empty thread is waiting for its real thread id.
+    private var isCreatingNewSession = false
     let navItems: [NavItem] = [
         NavItem(title: "Codex", symbol: "plus.bubble"),
         NavItem(title: "Sessions", symbol: "clock"),
@@ -71,7 +73,7 @@ final class MacShellViewModel: ObservableObject {
         runtime.sessions.map { s in
             SessionListItem(
                 id: s.sessionID,
-                title: String(s.sessionID.prefix(10)),
+                title: s.displayTitle,
                 subtitle: [s.model, s.cwd].compactMap { $0 }.joined(separator: " · "),
                 status: s.status ?? "idle",
                 count: 0
@@ -81,8 +83,7 @@ final class MacShellViewModel: ObservableObject {
 
     @Published var messages: [ConversationMessage] = []
 
-    /// Per-session message history, keyed by session ID.
-    private var sessionMessages: [String: [ConversationMessage]] = [:]
+    private var messageCache = SessionMessageCache<ConversationMessage>()
 
     @Published var files: [ChangedFileMock] = [
         ChangedFileMock(id: "mac-shell", path: "Sources/AgentClientMacShell/main.swift", status: "Modified", impact: "+420 -360", reviewState: "Pending"),
@@ -278,11 +279,11 @@ final class MacShellViewModel: ObservableObject {
     func startNewSession() {
         saveActiveSessionMessages()
         // Immediate visual feedback — clear conversation before the async chain runs
-        messages.removeAll()
+        messages = messageCache.beginPendingNewSession()
         streamingMessageID = nil
         streamingTurnID = nil
         lastAssistantTextLength = 0
-        messages.append(ConversationMessage(role: "Tool", text: "Starting new session…"))
+        isCreatingNewSession = true
         do {
             // Clear current thread so enqueueDraft creates a fresh one
             // (same logic as the iOS session.start path).
@@ -298,6 +299,7 @@ final class MacShellViewModel: ObservableObject {
             )
             record(.sessionStart, "session.start cwd=\(projectCWD)")
         } catch {
+            isCreatingNewSession = false
             messages.append(ConversationMessage(role: "Tool", text: "Failed to start new session: \(error)"))
         }
     }
@@ -313,7 +315,8 @@ final class MacShellViewModel: ObservableObject {
             return
         }
         activeRunID = id
-        messages = sessionMessages[id] ?? []
+        messages = messageCache.messages(for: id)
+        isCreatingNewSession = false
         streamingMessageID = nil
         streamingTurnID = nil
         lastAssistantTextLength = 0
@@ -709,16 +712,26 @@ final class MacShellViewModel: ObservableObject {
     }
 
     private func saveActiveSessionMessages() {
+        if isCreatingNewSession {
+            messageCache.savePending(messages)
+            return
+        }
         guard runtime.sessions.contains(where: { $0.sessionID == activeRunID }) else { return }
-        sessionMessages[activeRunID] = messages
+        messageCache.save(messages: messages, for: activeRunID)
     }
 
     private func bindCurrentMessages(toSession threadID: String) {
+        if isCreatingNewSession {
+            activeRunID = threadID
+            messages = messageCache.bindPendingNewSession(threadID: threadID, currentMessages: messages)
+            isCreatingNewSession = false
+            return
+        }
         if activeRunID != threadID {
             saveActiveSessionMessages()
             activeRunID = threadID
         }
-        sessionMessages[threadID] = messages
+        messageCache.save(messages: messages, for: threadID)
     }
 
     private func record(_ type: RelayCommandType, _ detail: String) {
@@ -758,6 +771,35 @@ struct ConversationMessage: Identifiable {
         self.id = id
         self.role = role
         self.text = text
+    }
+}
+
+struct SessionMessageCache<Message> {
+    private var histories: [String: [Message]] = [:]
+    private var pendingNewSession: [Message]?
+
+    mutating func beginPendingNewSession() -> [Message] {
+        pendingNewSession = []
+        return []
+    }
+
+    mutating func savePending(_ messages: [Message]) {
+        pendingNewSession = messages
+    }
+
+    mutating func bindPendingNewSession(threadID: String, currentMessages: [Message]) -> [Message] {
+        let messages = pendingNewSession ?? currentMessages
+        histories[threadID] = messages
+        pendingNewSession = nil
+        return messages
+    }
+
+    mutating func save(messages: [Message], for sessionID: String) {
+        histories[sessionID] = messages
+    }
+
+    func messages(for sessionID: String) -> [Message] {
+        histories[sessionID] ?? []
     }
 }
 

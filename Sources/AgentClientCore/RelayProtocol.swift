@@ -312,14 +312,24 @@ public struct RelaySessionInfoPayload: Codable, Equatable, Identifiable {
     public let effort: String?
     public let status: String?
     public let createdAt: Date?
+    public var title: String?
 
-    public init(sessionID: String, cwd: String? = nil, model: String? = nil, effort: String? = nil, status: String? = nil, createdAt: Date? = nil) {
+    public init(sessionID: String, cwd: String? = nil, model: String? = nil, effort: String? = nil, status: String? = nil, createdAt: Date? = nil, title: String? = nil) {
         self.sessionID = sessionID
         self.cwd = cwd
         self.model = model
         self.effort = effort
         self.status = status
         self.createdAt = createdAt
+        self.title = title
+    }
+
+    /// First user message truncated to ~6 characters for display.
+    public var displayTitle: String {
+        guard let title, !title.isEmpty else { return String(sessionID.prefix(8)) }
+        let cleaned = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.count <= 6 { return cleaned }
+        return String(cleaned.prefix(6)) + "…"
     }
 }
 

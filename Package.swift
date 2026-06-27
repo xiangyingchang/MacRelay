@@ -170,6 +170,10 @@ let package = Package(
         .testTarget(
             name: "AgentClientCoreTests",
             dependencies: ["AgentClientCore"]
+        ),
+        .testTarget(
+            name: "AgentClientMacShellTests",
+            dependencies: ["AgentClientMacShell"]
         )
     ]
 )

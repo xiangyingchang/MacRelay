@@ -338,6 +338,11 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
                 ?? (params?["thread"] as? [String: Any])?["id"] as? String {
                 currentThreadID = threadID
                 recordSession(threadID: threadID, params: params)
+                // Set session title from the user's first message
+                if let draft = pendingDraft, !draft.text.isEmpty,
+                   let idx = sessions.firstIndex(where: { $0.sessionID == threadID }) {
+                    sessions[idx].title = draft.text
+                }
                 firePendingTurn(threadID: threadID)
                 onThreadStarted?(threadID)
             }
@@ -380,6 +385,14 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
             let extracted = Self.extractTurnID(from: params)
             if let turnID = extracted {
                 latestTurnID = turnID
+            }
+            // Set session title from the user's first real message if the
+            // session was created with empty text (session.start no-prompt).
+            if let threadID = currentThreadID,
+               let idx = sessions.firstIndex(where: { $0.sessionID == threadID }),
+               (sessions[idx].title ?? "").isEmpty,
+               let draft = pendingDraft, !draft.text.isEmpty {
+                sessions[idx].title = draft.text
             }
             print("[Log] Received CLI Turn Started: \(extracted ?? "?")")
 

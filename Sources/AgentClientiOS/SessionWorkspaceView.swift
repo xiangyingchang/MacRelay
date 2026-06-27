@@ -429,7 +429,7 @@ struct SessionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 // Session ID (truncated) + model
                 HStack(spacing: 6) {
-                    Text(session.sessionID.prefix(10) + "...")
+                    Text(session.displayTitle)
                         .font(.system(.subheadline, design: .monospaced))
                         .lineLimit(1)
                     if let model = session.model {

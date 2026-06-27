@@ -11,7 +11,7 @@ struct MacShellView: View {
                     .frame(width: 286)
                 Rule()
             } else {
-                CollapsedSidebar(toggleSidebar: { sidebarVisible.toggle() })
+                CollapsedSidebar()
             }
             MainWorkspace(viewModel: viewModel)
         }

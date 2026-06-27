@@ -39,7 +39,7 @@ struct Sidebar: View {
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.top, 18)
+            .padding(.top, 4)
 
             // Session list
             if !viewModel.displaySessions.isEmpty {
@@ -215,15 +215,8 @@ struct NavRow: View {
 // MARK: - Collapsed Sidebar
 
 struct CollapsedSidebar: View {
-    let toggleSidebar: () -> Void
-
     var body: some View {
-        VStack {
-            IconOnlyButton(systemName: "sidebar.right", action: toggleSidebar)
-                .padding(.top, 16)
-            Spacer()
-        }
-        .frame(width: 44)
-        .background(Theme.bgSecondary)
+        Color.clear
+            .frame(width: 1)
     }
 }

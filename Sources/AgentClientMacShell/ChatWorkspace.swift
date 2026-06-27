@@ -241,6 +241,9 @@ struct CommandApprovalCard: View {
 
 struct Composer: View {
     @ObservedObject var viewModel: MacShellViewModel
+    @State private var editorHeight: CGFloat = 72
+    private let minEditorHeight: CGFloat = 48
+    private let maxEditorHeight: CGFloat = 320
 
     var body: some View {
         VStack(spacing: 12) {
@@ -252,7 +255,6 @@ struct Composer: View {
                     .background(Color.clear)
                     .padding(.horizontal, 12)
                     .padding(.top, 9)
-                    .frame(maxWidth: .infinity, minHeight: 112, maxHeight: 160, alignment: .topLeading)
                 if viewModel.draftText.isEmpty {
                     Text("提出后续修改要求")
                         .font(.system(size: 15, weight: .semibold))
@@ -260,6 +262,21 @@ struct Composer: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 11)
                         .allowsHitTesting(false)
+                }
+
+                // 上边缘拖拽 — 使用 AppKit NSTrackingArea 原生实现，确保光标变化
+                ResizeHandleView(
+                    editorHeight: $editorHeight,
+                    minHeight: minEditorHeight,
+                    maxHeight: maxEditorHeight
+                )
+                .frame(height: 6)
+            }
+            .frame(height: editorHeight)
+            .onChange(of: viewModel.draftText) { _, newValue in
+                if newValue.hasSuffix("\n") {
+                    viewModel.draftText = String(newValue.dropLast())
+                    viewModel.sendDraft()
                 }
             }
 
@@ -441,5 +458,82 @@ struct SessionMenu: View {
 
     private var displayTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? label : title
+    }
+}
+
+// MARK: - 输入框上边缘拖拽调整高度（基于 AppKit NSTrackingArea）
+
+struct ResizeHandleView: NSViewRepresentable {
+    @Binding var editorHeight: CGFloat
+    let minHeight: CGFloat
+    let maxHeight: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = HandleNSView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    class Coordinator {
+        var parent: ResizeHandleView
+        init(_ parent: ResizeHandleView) { self.parent = parent }
+    }
+}
+
+class HandleNSView: NSView {
+    weak var coordinator: ResizeHandleView.Coordinator?
+    private var trackingArea: NSTrackingArea?
+    private var lastGlobalY: CGFloat = 0
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+        updateTrackingAreas()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let ta = trackingArea {
+            removeTrackingArea(ta)
+        }
+        trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea!)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.resizeUpDown.push()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.pop()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        lastGlobalY = event.locationInWindow.y
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let coord = coordinator else { return }
+        let delta = lastGlobalY - event.locationInWindow.y
+        coord.parent.editorHeight = max(
+            coord.parent.minHeight,
+            min(coord.parent.maxHeight, coord.parent.editorHeight + delta)
+        )
+        lastGlobalY = event.locationInWindow.y
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        // 完成拖拽
     }
 }
