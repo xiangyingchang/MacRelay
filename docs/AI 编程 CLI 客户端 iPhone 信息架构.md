@@ -1,6 +1,9 @@
 # AI 编程 CLI 客户端 iPhone 信息架构
 
-创建日期：2026-06-21
+创建日期：2026-06-21  | 最后更新：2026-06-27
+
+> **实现更新：**
+> - 2026-06-27：补充实际实现的连接状态机、PairingView 流程、页面结构
 
 关联文档：
 
@@ -444,4 +447,49 @@ iPhone 首版可用的最低标准：
 - 能 approve / stage / discard 单文件变更。
 - 能新建 session 并选择项目目录。
 - 能终止 session。
-- 断线重连后能恢复最近状态。
+
+## 当前实现状态
+
+### 已实现
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 配对（扫码/粘贴 URI） | ✅ | `RelayPairingURI.detect()` + `RelayHTTPClient.claimPairing()` |
+| WebSocket 连接 | ✅ | `RelayWebSocketClient` 基于 `URLSessionWebSocketTask` |
+| Token auth | ✅ | `mac-relay.authorize` 消息 |
+| Challenge-response auth | ✅ | HMAC-SHA256 nonce 签名 |
+| snapshot 获取 | ✅ | HTTP + WebSocket 双通道 |
+| replay 事件 | ✅ | afterSeq 增量拉取 |
+| 心跳 + 自动重连 | ✅ | 指数退避，cap 30s |
+| 断线状态检测 | ✅ | `MobileConnectionStateMachine` 7 状态 |
+| Keychain 持久化 | ✅ | 真机 Keychain 存储 token/claim |
+| 清除配对 | ✅ | Keychain 清理 + 状态回退 |
+| 连接状态 UI | ✅ | `ConnectionStatusView` 显示状态/心跳/重连次数 |
+
+### 连接状态机
+
+```
+unpaired → pairing → paired → connecting → connected
+                                      ↓         ↓
+                                 authFailed    offline (hearbeat lost)
+                                      ↓         ↓
+                                  unpaired  → reconnecting → connected
+                                                ↓        ↓
+                                           authFailed  offline
+```
+
+实际状态：`MobileClientState` 枚举（7 种），`MobileConnectionStateMachine` 管理合法转换。
+
+### 差距分析（vs 设计基准）
+
+| 需求 | 当前 | 优先级 |
+|------|------|--------|
+| 配对 Mac | ✅ 已实现 | — |
+| 查看 session | ✅ 已实现 | — |
+| 发送输入 | 依赖 Codex runtime mode | P1 |
+| 文件 diff 查看 | 基础 | P2 |
+| approve/reject | 依赖 Codex runtime mode | P1 |
+| 切换 model/effort | 基础 | P2 |
+| 新建 session | 依赖 Codex runtime mode | P2 |
+| 断线后自动恢复 | ✅ 已实现 | — |
+| 真机端到端验证 | ❌ 需手动闭环 | P0 |

@@ -1,7 +1,6 @@
-# MacRelay 端到端手动验收指南
+# MacRelay 端到端手动验证指南
 
-最后更新：2026-06-23  
-对应 HEAD：`git rev-parse --short HEAD`
+最后更新：2026-06-27
 
 ## 前置条件
 
@@ -9,24 +8,48 @@
 - Codex CLI 已安装（`~/.npm-global/bin/codex`）
 - 本仓库位于 `/private/tmp/MacRelay`
 - **真机配对需要**：Mac 和 iPhone 连接同一 Wi‑Fi；Mac 防火墙允许 `AgentClientMacShell` 入站连接；Mac Inspector 中 Host mode 设为 "LAN"
-- **真机部署**：必须通过 Xcode 打开 `Package.swift`，选择 MacRelayiOS scheme + iPhone destination + Personal Team 签名，直接 Run 即可。SwiftPM CLI 不支持真机 codesign。
+- **真机部署**：必须通过 Xcode 打开 `Apps/MacRelayiOSApp/MacRelayiOSApp.xcodeproj`，选择 MacRelayiOSApp scheme + iPhone destination + Personal Team 签名。SwiftPM CLI 不支持真机 codesign。
   - 详细步骤见 `scripts/build-ios-device.sh`
 
-## Step 1 — 启动 Mac Relay
+## macOS Shell 验证
+
+### 启动方式
+
+```bash
+# 开发模式（裸 executable，输入法可能不稳定）
+swift build && open .build/debug/AgentClientMacShell
+
+# 正式模式（.app bundle，推荐）
+scripts/build-mac-shell-app.sh && open .build/AgentClientMacShell.app
+```
+
+### Inspector 布局
+
+右侧 Inspector 从上到下依次：
+1. **Changed Files** — 文件变更列表
+2. **Diff Preview** — 差异预览
+3. **Session** — session 元信息
+4. **Codex Runtime** — Codex CLI 检测/启动
+5. **Mac Relay**（含 Pairing 内嵌块）：
+   - **PAIRING** 子区域：QR 码 + `macrelay://pair?...` URI（可复制）+ Host mode 选择器 + Rotate 按钮
+   - Relay 状态：Running/Stopped + 端口 + Start/Stop/Snapshot 按钮
+6. **Mock Commands** — 命令日志
+
+### 输入框
+
+Mac shell 底部输入框使用 `TextField(axis: .vertical)`（macOS 14+ 原生多行），已验证中文输入法候选窗正常。如果无法输入，检查是否以 `.app` bundle 方式运行。
+
+## Step 1 — 环境检查
 
 ```bash
 cd /private/tmp/MacRelay
-swift build
-
-# 启动 Mac App shell（会启动 HTTP relay + WebSocket relay）
-.build/debug/AgentClientMacShell
+scripts/check.sh
 ```
 
-或直接启动 HTTP relay 探针验证：
-
-```bash
-.build/debug/MacRelayHTTPServerProbe
-# → MacRelayHTTPServerProbe passed port=48731
+预期输出：
+```
+✅ All probes passed
+⏭ Live probes skipped (env gate)
 ```
 
 ## Step 2 — 获取 Pairing Payload
@@ -34,90 +57,87 @@ swift build
 在 Mac Inspector 的 "Mac Relay" 区域：
 - **Host mode** 选择器：Simulator/本机选 **Localhost**，真机选 **LAN**
 - 如果 LAN 无法发现 IP，会自动 fallback 到 localhost 并显示警告
+- 点击 Start 启动 relay
+- Pairing 区域会出现 QR 码 + `macrelay://pair?...` URI
 
-```
-host: 127.0.0.1
-port: 48731
-token: xxxxxxxx-xxxx-xxxx...
-claim: yyyyyyyy-yyyy-yyyy...
-deviceID: zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz
-expires: 580s
-version: 1
-```
+## Step 3 — 配对验证（Simulator）
 
-也可以直接 curl：
+### 3a — 自动配对（扫码/URL scheme）
 
 ```bash
-curl http://127.0.0.1:48731/pairing
+# 从 Mac Inspector 复制 pairing URI，然后：
+xcrun simctl openurl booted "macrelay://pair?host=127.0.0.1&port=...&claim=..."
 ```
 
-如需 rotate（更换 token/claim）：
+### 3b — 手动配对
+
+1. 在 Simulator 中打开 MacRelay app
+2. 在 Pairing tab 粘贴 URI
+3. 点击 Claim & Connect
+4. 验证：
+   - 按钮显示 "Connecting..." → "Claim & Connect"
+   - 状态指示变为 "Connected"
+   - 切换到 Session tab 能看到 snapshot
+   - 切换到 Log tab 能看到 replay events
+
+### 3c — 断线重连
+
+1. 在 Mac shell 中停止 relay（Mac Relay 区点 Stop）
+2. Simulator 中观察状态变为 "Reconnecting..."
+3. 在 Mac shell 中启动 relay（点 Start + Rotate）
+4. Simulator 自动重连成功
+
+### 3d — 清除配对
+
+1. 在 Simulator app 中点击 Clear Pairing
+2. 验证回到 Pairing 页面
+3. 旧的 credential 不能再使用
+
+## Step 4 — 真机配对验证
+
+### 4a — Xcode 部署
 
 ```bash
-# 在 Mac Inspector 点击 "Rotate" 按钮
-# 或代码调用 relayHTTPServer.rotatePairingToken()
+open Apps/MacRelayiOSApp/MacRelayiOSApp.xcodeproj
+# Xcode 中：
+#   1. 选 MacRelayiOSApp scheme
+#   2. 选 iPhone 真机
+#   3. Signing → Personal Team
+#   4. ⌘R
 ```
 
-## Step 3 — 启动 iOS Simulator App
+### 4b — Mac Shell 配置
 
 ```bash
-./scripts/build-ios.sh
+open .build/AgentClientMacShell.app
+# Mac Relay → Start
+# Host mode → LAN（切换后 relay 重启，监听 LAN IP）
 ```
 
-这将：
-1. 为 iOS Simulator 构建 `MacRelayiOS`
-2. 生成 `.app` bundle
-3. 安装到 booted simulator
-4. 启动 App
+### 4c — iPhone 配对
 
-## Step 4 — 完成 Pairing
+1. iPhone 相机扫描 Mac Inspector 中的 QR 码
+2. 自动打开 MacRelay app，触发 `onOpenURL`
+3. 或 iPhone 中粘贴 URI → Claim & Connect
 
-在 iOS Simulator App 中：
+## 验证标准
 
-1. **Pairing 标签页**
-2. 将 Step 2 中 Mac Inspector 显示的 URI（`macrelay://pair?...`）或完整 JSON payload 粘贴到输入框中
-3. 点击 **Claim** 按钮
-4. App 会：
-   - 调用 `GET /pairing/claim?claim=...` 完成一次性声明
-   - 连接 WebSocket，发送 `mac-relay.authorize` 携带 token
-   - 进入 "Connected" 状态
+- [ ] 全流程不崩溃
+- [ ] HTTP 配对 + 409 防重放
+- [ ] WebSocket auth（token 方式）
+- [ ] snapshot / replay / heartbeat
+- [ ] 断线自动重连
+- [ ] 清除配对后不能复用旧 credential
+- [ ] Host mode Localhost/LAN 切换正确
+- [ ] 真机 HTTP 不因 ATS 被拦截
+- [ ] live Codex probes 不自动运行
 
-## Step 5 — 查看 Session
+## 常见问题
 
-切换到 **Session 标签页**：
-- 看到连接状态指示（绿色圆点 = connected）
-- 可点击 **Refresh** 拉取最新 snapshot + replay events
-- 看到 Codex session 的状态（如果有正在运行的 session）
-
-## ⚠️ Codex 额度消耗说明
-
-**以下操作会消耗 Codex 模型额度，默认不运行：**
-
-| 命令 | 说明 |
-|------|------|
-| `MACRELAY_RUN_LIVE_CODEX=1 .build/debug/RelayCommandLiveProbe` | 验证 settings.update + tiny turn |
-| `MACRELAY_RUN_LIVE_APPROVAL=1 .build/debug/RelayApprovalLiveProbe` | 验证 readOnly sandbox 触发 approval |
-| `codex app-server --stdio` 手动交互 | 真实 Codex session |
-
-**以下操作不消耗额度，可随时运行：**
-
-```bash
-swift build && swift test
-.build/debug/MacRelayHTTPServerProbe
-.build/debug/MacRelayWebSocketServerProbe
-.build/debug/RelayRuntimeCommandDispatcherProbe
-.build/debug/AgentClientIOProbe
-.build/debug/RealStateMachineLoopProbe
-.build/debug/ChallengeSignerProbe
-.build/debug/iPhoneSimClientProbe
-```
-
-## 故障排除
-
-| 症状 | 可能原因 | 解决方法 |
-|------|---------|---------|
-| iOS App 连接失败 | Mac relay 未启动 | 检查 Mac Inspector 的 "Mac Relay" section 是否为 "Running" |
-| Claim 返回 401 | token 已过期 | 在 Mac Inspector 点击 "Rotate" 获取新 payload |
-| Claim 返回 409 | claim 已被使用 | 同上，rotate 获取新 payload |
-| WebSocket 连接超时 | 防火墙阻止 127.0.0.1 | 确认 Mac 防火墙允许 AgentClientMacShell |
-| 看不到 session 数据 | Mac 没有活跃的 Codex session | 使用 `.build/debug/MacRelayServiceFixtureProbe` 创建 mock session |
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| 输入框无法输入 | 非 `.app` bundle 启动 | `scripts/build-mac-shell-app.sh && open .build/AgentClientMacShell.app` |
+| 真机黑屏 | Keychain 主线程阻塞 / 缺 LaunchScreen | Clean Build Folder + re-run |
+| Claim 无反应 | ATS 拦截 HTTP / 状态机卡住 | 更新代码到最新 + 重启 |
+| WS 连接失败 | Mac 无 WS server / wsPort 不对 | 确认 Mac shell 已 Start relay |
+| 扫码 URL scheme 不触发 | Info.plist 缺少 CFBundleURLTypes | 检查 MacRelayiOSApp 项目配置 |

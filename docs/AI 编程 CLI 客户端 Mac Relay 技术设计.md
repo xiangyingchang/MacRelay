@@ -1,6 +1,10 @@
 # AI 编程 CLI 客户端 Mac Relay 技术设计
 
-创建日期：2026-06-21
+创建日期：2026-06-21  | 最后更新：2026-06-27
+
+> **实现更新记录：**
+> - 2026-06-27：补充 `.app` bundle 形态、wsPort、Xcode project、Keychain、ATS、Inspector 布局等实现细节
+> - 原始设计中的大部分架构保持不变，本节录的是实现过程中发现的关键差异和补充
 
 关联文档：
 
@@ -47,7 +51,69 @@ M0 已验证：
 
 ## 3. 进程边界
 
+## 实现差异记录
+
+以下是与原始设计相比，实际实现中发现的关键差异和补充：
+
+### 3.1.1 macOS 运行形态
+
+**原始设计：** SwiftPM executable target
+**实际发现：** 裸 Mach-O 在 macOS 输入法/Text Services 下不稳定，中文候选窗可弹出但文本无法提交到 `TextEditor`。修复：打成 `.app` bundle + ad-hoc codesign。参见 `scripts/build-mac-shell-app.sh`。
+
+```bash
+# 必须用 .app 方式启动，否则输入法异常
+scripts/build-mac-shell-app.sh
+open .build/AgentClientMacShell.app
+```
+
+### 3.1.2 WebSocket 服务器
+
+**原始设计：** HTTP 和 WebSocket 共用同一端口
+**实际实现：** 分离为独立 `MacRelayHTTPServer` + `MacRelayWebSocketServer`，两者通过 `wsPort` 字段在配对 payload 中关联。Mac shell 的 `startRelayServer()` 同时启动两个服务器。
+
+```swift
+// Models.swift
+try relayHTTPServer.start(host: relayServerHost, port: 0)
+try relayWSServer.start(host: relayServerHost, port: 0)
+_ = relayWSServer.waitUntilReady(timeout: 2)
+relayHTTPServer.wsServerPort = relayWSServer.port
+```
+
+### 3.1.3 Keychain 主线程阻塞
+
+**原始设计：** `KeychainPairingCredentialStore.init()` 同步调用 `SecItemCopyMatching`
+**实际发现：** 真机上首次 Keychain 访问会触发安全检查，阻塞主线程数十到数百毫秒，阻止 SwiftUI 渲染第一帧 → 黑屏。修复：将 `try? reload()` 移到 `DispatchQueue.global().async`。
+
+### 3.1.4 ATS（App Transport Security）
+
+**原始设计：** 未考虑
+**实际发现：** iOS 真机默认阻止所有 HTTP 明文连接，包括 `http://192.168.x.x:port/pairing/claim` 和 `ws://...`。修复：Info.plist 添加 `NSAllowsLocalNetworking`。
+
+### 3.2.1 iOS 部署形态
+
+**原始设计：** SwiftPM executable target 用于 simulator
+**实际发现：** 真机需要 Xcode App target + automatic signing + provisioning profile。新增 `Apps/MacRelayiOSApp/MacRelayiOSApp.xcodeproj`，使用 `XCLocalSwiftPackageReference` 引用根目录的 Package.swift。
+
+### 3.2.2 pairing payload 安全
+
+**原始设计：** `deviceSecret` 通过 `GET /pairing`（无需 auth）暴露
+**实际修改：** `deviceSecret` 在 `GET /pairing` 中显式设为 `null`。只在 `GET /pairing/claim`（需一次性的 claim 验证）响应中下发。
+
+### 3.3.1 Inspector 布局
+
+**原始设计：** 右侧栏顺序未明确
+**实际实现：** 从上到下：Changed Files → Diff Preview → Session → Codex Runtime → **Mac Relay**（内嵌 PAIRING 块）→ Mock Commands。`Pairing` 不是独立 section，而是 Mac Relay section 内的第一块。
+
+### 3.3.2 UILaunchScreen
+
+**原始设计：** 未涉及
+**实际发现：** 缺 `UILaunchScreen` 时 iOS 在应用启动到 SwiftUI 渲染之间显示黑屏。修复：Info.plist 添加 `UILaunchScreen`。
+
+---
+
 ### 3.1 Mac App
+
+所有模型操作归 Mac 本地，iPhone 仅远程操控和决策。
 
 职责：
 

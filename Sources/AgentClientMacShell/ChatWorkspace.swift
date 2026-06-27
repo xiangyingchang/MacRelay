@@ -209,25 +209,19 @@ struct Composer: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ZStack(alignment: .topLeading) {
-                if viewModel.draftText.isEmpty {
-                    Text("Ask Codex to change, inspect, build, or explain...")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Theme.textMuted)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .allowsHitTesting(false)  // don't block TextEditor focus
-                }
-                TextEditor(text: $viewModel.draftText)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.textPrimary)
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.clear)
-            }
-            .frame(minHeight: 56)  // allow expansion
-            .frame(maxHeight: 120)
+            TextField(
+                "Ask Codex to change, inspect, build, or explain...",
+                text: $viewModel.draftText,
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: 14))
+            .foregroundStyle(Theme.textPrimary)
+            .lineLimit(3...6)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 120, alignment: .topLeading)
+            .contentShape(Rectangle())
             .background(Theme.bgSecondary)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(

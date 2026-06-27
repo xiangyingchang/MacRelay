@@ -1,6 +1,10 @@
 # AI 编程 CLI 客户端 UI 设计基准
 
-创建日期：2026-06-21
+创建日期：2026-06-21  | 最后更新：2026-06-27
+
+> **实现更新：**
+> - 2026-06-27：补充当前实际实现的 UI 布局、Inspector 结构、iOS 页面信息
+> - 原始 UI 设计基准仍作为长期视觉参考，本节录当前实现状态
 
 关联文档：
 
@@ -342,3 +346,46 @@ iPhone：
 - session 级配置双端实时同步。
 - diff、approval、状态在双端看到的是同一份事实。
 - UI 不让用户误以为文件和凭证已经同步到云端。
+
+## 实现状态 vs 设计基准
+
+### macOS Shell 当前布局
+
+```
+┌──────────────┬──────────────────────────┬──────────────┐
+│  Sidebar     │  ChatWorkspace           │  Inspector   │
+│  (292pt)     │  (flex)                  │  (360pt,     │
+│              │                          │   ScrollView)│
+│  - Session   │  ┌──────────────────┐   │  Changed F.  │
+│  - Files     │  │  Message List     │   │  Diff Prev.  │
+│  - Active    │  │  (scrollable)     │   │  Session     │
+│    Sessions  │  └──────────────────┘   │  Codex Runt. │
+│              │  ┌──────────────────┐   │  Mac Relay   │
+│              │  │  Input           │   │  ├ PAIRING   │
+│              │  │  (macOS 14+      │   │  ├ Status    │
+│              │  │   TextField)     │   │  Mock Commds │
+│              │  └──────────────────┘   └──────────────┘
+└──────────────┴──────────────────────────┘
+```
+
+### iOS 当前页面结构
+
+```
+TabView {
+  PairingView         — 输入 URI / 扫 QR / Claim & Connect
+  ConnectionStatusView — 连接状态 / 心跳 / 重连
+  SessionSnapshotView  — 当前 session 摘要
+  EventReplayListView  — 事件回放列表
+}
+```
+
+### 与设计基准的主要差异
+
+| 设计基准指向 | 当前实现 | 说明 |
+|------------|---------|------|
+| Electron + React | SwiftUI + macOS native | 更轻量，无 Electron 开销 |
+| 左侧导航 + 中央工作区 | HStack(Sidebar + Chat + Inspector) | 三栏布局，已实现底部输入 |
+| 底部 slash command 菜单 | 暂无 | 当前只支持纯文本输入 |
+| streaming chat UI | 支持（mock + real mode） | 已实现 Codex app-server 桥接 |
+| markdown rendering | 基础 | 后续需加强 |
+| iOS 原生体验 | TabView + NavigationStack | 已实现
