@@ -47,7 +47,6 @@ struct Sidebar: View {
                     sessions: viewModel.displaySessions,
                     activeID: viewModel.activeRunID,
                     select: { id in
-                        viewModel.activeRunID = id
                         viewModel.activeNav = "Sessions"
                         viewModel.selectSession(id: id)
                     }
