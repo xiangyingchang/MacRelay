@@ -17,6 +17,7 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var conversationMessages: [String] = []
     @Published public var draftText = ""
     @Published public var isSending = false
+    @Published public var availableSessions: [RelaySessionInfoPayload] = []
     /// Toolbar state — synced from snapshot on refresh
     @Published public var selectedModel = ""
     @Published public var selectedEffort = "medium"
@@ -58,6 +59,7 @@ public final class RelayClientViewModel: ObservableObject {
         wsClient.onSnapshot = { [weak self] envelope in
             guard let self else { return }
             self.sessionSnapshot = envelope.payload.session
+            self.availableSessions = envelope.payload.availableSessions ?? []
             self.syncToolbarFromSnapshot()
             self.heartbeatOnline = envelope.payload.connection.isOnline
             self.lastErrorCode = nil
@@ -136,6 +138,7 @@ public final class RelayClientViewModel: ObservableObject {
         do {
             let snap = try await wsClient.getSnapshot()
             sessionSnapshot = snap.payload.session
+            availableSessions = snap.payload.availableSessions ?? []
             syncToolbarFromSnapshot()
             heartbeatOnline = true
             updateConversation()
@@ -230,6 +233,7 @@ public final class RelayClientViewModel: ObservableObject {
         sessionSnapshot = nil
         replayEvents = []
         conversationMessages = []
+        availableSessions = []
         pendingLocalUserMessages = []
         heartbeatOnline = false
         _ = stateMachine.transition(to: .unpaired)

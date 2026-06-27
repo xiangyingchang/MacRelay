@@ -68,9 +68,10 @@ public struct MacRelayRuntimeCommandDispatcher {
                     turnSandbox: turnSandbox(forPermissionMode: payload.permissionMode, explicitSandbox: payload.sandboxMode),
                     approvalPolicy: payload.approvalPolicy ?? approvalPolicy(forPermissionMode: payload.permissionMode)
                 )
-                return .dispatched("session.start initialPrompt")
+                return .dispatched("session.start with prompt")
             }
-            return .unsupported("session.start without initialPrompt is reserved for explicit thread creation")
+            // No initialPrompt: just confirm readiness. Thread created on first turn.
+            return .dispatched("session.start ready")
 
         case .turnStart:
             let payload = try decoder.decode(RelayTurnStartCommandPayload.self, from: payloadData)

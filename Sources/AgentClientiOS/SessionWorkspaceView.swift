@@ -88,9 +88,27 @@ struct SessionToolbar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
+                // Session picker
+                if !viewModel.availableSessions.isEmpty {
+                    Picker("Session", selection: Binding(
+                        get: { viewModel.sessionSnapshot?.threadID ?? "" },
+                        set: { _ in }
+                    )) {
+                        ForEach(viewModel.availableSessions) { s in
+                            Text(s.sessionID.prefix(8)).tag(s.sessionID)
+                                .font(.caption)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 80)
+                }
+
                 // New Session button
                 Button {
-                    Task { try? await viewModel.startNewSession() }
+                    Task {
+                        try? await viewModel.startNewSession()
+                        try? await viewModel.refresh()
+                    }
                 } label: {
                     Label("New", systemImage: "plus.bubble")
                         .font(.caption)
