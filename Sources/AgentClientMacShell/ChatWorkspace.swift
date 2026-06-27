@@ -250,12 +250,15 @@ struct Composer: View {
                     .foregroundStyle(Theme.textPrimary)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 9)
                     .frame(maxWidth: .infinity, minHeight: 112, maxHeight: 160, alignment: .topLeading)
                 if viewModel.draftText.isEmpty {
                     Text("提出后续修改要求")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.textMuted)
-                        .padding(.top, 8)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 9)
                         .allowsHitTesting(false)
                 }
             }
