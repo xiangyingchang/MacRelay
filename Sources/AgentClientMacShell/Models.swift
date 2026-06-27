@@ -302,6 +302,24 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
+    /// Switch to an existing session: update runtime, clear conversation,
+    /// and show a confirmation message.
+    func selectSession(id: String) {
+        do {
+            try runtime.selectSession(sessionID: id)
+        } catch {
+            messages.append(ConversationMessage(role: "Tool", text: "Failed to select session: \(error)"))
+            return
+        }
+        activeRunID = id
+        messages.removeAll()
+        messages.append(ConversationMessage(role: "System", text: "Switched to session \(id.prefix(8))"))
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
+        record(.sessionStart, "session.select id=\(id)")
+    }
+
     func sendDraft() {
         let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

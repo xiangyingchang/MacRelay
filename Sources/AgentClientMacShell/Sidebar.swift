@@ -49,6 +49,7 @@ struct Sidebar: View {
                     select: { id in
                         viewModel.activeRunID = id
                         viewModel.activeNav = "Sessions"
+                        viewModel.selectSession(id: id)
                     }
                 )
             }
