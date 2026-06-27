@@ -81,6 +81,9 @@ final class MacShellViewModel: ObservableObject {
 
     @Published var messages: [ConversationMessage] = []
 
+    /// Per-session message history, keyed by session ID.
+    private var sessionMessages: [String: [ConversationMessage]] = [:]
+
     @Published var files: [ChangedFileMock] = [
         ChangedFileMock(id: "mac-shell", path: "Sources/AgentClientMacShell/main.swift", status: "Modified", impact: "+420 -360", reviewState: "Pending"),
         ChangedFileMock(id: "ui-doc", path: "产品/AI 编程 CLI 客户端 UI 设计基准.md", status: "Updated", impact: "+54 -0", reviewState: "Approved"),
@@ -311,8 +314,11 @@ final class MacShellViewModel: ObservableObject {
             messages.append(ConversationMessage(role: "Tool", text: "Failed to select session: \(error)"))
             return
         }
+        // Save current session's messages before switching
+        sessionMessages[activeRunID] = messages
         activeRunID = id
-        messages.removeAll()
+        // Restore messages for the target session (if any)
+        messages = sessionMessages[id] ?? []
         messages.append(ConversationMessage(role: "System", text: "Switched to session \(id.prefix(8))"))
         streamingMessageID = nil
         streamingTurnID = nil
