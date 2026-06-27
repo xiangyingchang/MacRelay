@@ -4,6 +4,7 @@ import Foundation
 
 /// View model for the iOS relay client, exposing connection state and
 /// session data in an ObservableObject suitable for SwiftUI binding.
+/// All toolbar state is driven by Mac snapshot — no hardcoded model lists.
 @MainActor
 public final class RelayClientViewModel: ObservableObject {
     @Published public var connectionStatus: String = "Disconnected"
@@ -12,16 +13,15 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var heartbeatOnline = false
     @Published public var pairingCode: String = ""
     @Published public var isConnecting = false
+    /// UI message list — driven ONLY by Mac snapshot, never optimistic.
     @Published public var conversationMessages: [String] = []
     @Published public var draftText = ""
     @Published public var isSending = false
-    @Published public var selectedModel = "claude-sonnet-4"
+    /// Toolbar state — synced from snapshot on refresh
+    @Published public var selectedModel = ""
     @Published public var selectedEffort = "medium"
     @Published public var planModeEnabled = false
     @Published public var permissionMode = "Read Only"
-    public let modelOptions = ["claude-sonnet-4", "claude-4", "deepseek-v4", "gpt-5"]
-    public let efforts = ["low", "medium", "high", "xhigh"]
-    public let permissions = ["Read Only", "Default", "Full Access"]
 
     public let stateMachine = MobileConnectionStateMachine()
     private let httpClient: RelayHTTPClient?
@@ -79,7 +79,6 @@ public final class RelayClientViewModel: ObservableObject {
         guard stateMachine.attemptPairing() else { throw RelayClientError.invalidPairingInput }
         let client = RelayHTTPClient(host: uri.host, port: uri.port)
 
-        // Complete the one-time claim — on failure reset state machine
         let claimed: RelayPairingPayload
         do {
             claimed = try await client.claimPairing(claim: uri.claim)
@@ -118,6 +117,7 @@ public final class RelayClientViewModel: ObservableObject {
         do {
             let snap = try await wsClient.getSnapshot()
             sessionSnapshot = snap.payload.session
+            syncToolbarFromSnapshot()
             heartbeatOnline = true
             let replay = try await wsClient.getReplay(afterSeq: snap.payload.lastEventSeq > 5 ? snap.payload.lastEventSeq - 5 : 0, maxEvents: 20)
             if replay.payload.kind == "events" { replayEvents = replay.payload.events }
@@ -127,6 +127,17 @@ public final class RelayClientViewModel: ObservableObject {
             lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
         }
         isConnecting = false
+    }
+
+    /// Synchronise toolbar state from the latest Mac snapshot — Single Source of Truth.
+    private func syncToolbarFromSnapshot() {
+        guard let snap = sessionSnapshot else { return }
+        if let model = snap.model, !model.isEmpty {
+            selectedModel = model
+        }
+        if let effort = snap.effort, !effort.isEmpty {
+            selectedEffort = effort
+        }
     }
 
     public func reconnect() async {
@@ -195,6 +206,7 @@ public final class RelayClientViewModel: ObservableObject {
         _ = stateMachine.transition(to: .unpaired)
     }
 
+    /// Send a turn — NO optimistic update. UI renders only after Mac confirms.
     public func sendTurn(text: String) async throws {
         guard stateMachine.state == .connected else {
             lastErrorCode = RelayErrorCode.generalError.code
@@ -202,20 +214,20 @@ public final class RelayClientViewModel: ObservableObject {
         }
         isSending = true
         defer { isSending = false }
-        conversationMessages.append("[user] \(text)")
         let payload = RelayTurnStartCommandPayload(
             sessionID: sessionSnapshot?.threadID ?? "",
             input: text,
-            model: selectedModel,
+            model: selectedModel.isEmpty ? nil : selectedModel,
             effort: selectedEffort,
             planMode: planModeEnabled,
             permissionMode: permissionMode
         )
-        let response: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+        // Send and wait for Mac acknowledgement
+        let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
             type: .turnStart,
             payload: payload
         )
-        // After command acknowledged, refresh snapshot to get updated conversation
+        // Refresh state from Mac (Single Source of Truth)
         try await refresh()
         updateConversation()
         lastErrorCode = nil
@@ -226,7 +238,7 @@ public final class RelayClientViewModel: ObservableObject {
         guard stateMachine.state == .connected else { return }
         let payload = RelaySettingsUpdateCommandPayload(
             sessionID: sessionSnapshot?.threadID ?? "",
-            model: selectedModel,
+            model: selectedModel.isEmpty ? nil : selectedModel,
             effort: selectedEffort,
             planMode: planModeEnabled,
             permissionMode: permissionMode
@@ -241,7 +253,7 @@ public final class RelayClientViewModel: ObservableObject {
         }
     }
 
-    /// Build conversation message list from the latest snapshot.
+    /// Build conversation message list from the latest snapshot — Single Source of Truth.
     public func updateConversation() {
         guard let snap = sessionSnapshot else {
             conversationMessages = []

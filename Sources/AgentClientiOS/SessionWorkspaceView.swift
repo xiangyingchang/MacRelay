@@ -82,25 +82,27 @@ public struct SessionWorkspaceView: View {
 struct SessionToolbar: View {
     @ObservedObject var viewModel: RelayClientViewModel
 
+    private let efforts = ["low", "medium", "high", "xhigh"]
+    private let permissions = ["Read Only", "Default", "Full Access"]
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                // Model
-                Picker("Model", selection: $viewModel.selectedModel) {
-                    ForEach(viewModel.modelOptions, id: \.self) { m in
-                        Text(m).tag(m).font(.caption)
-                    }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: viewModel.selectedModel) { _, _ in
-                    Task { await viewModel.sendSettingsUpdate() }
+                // Model — driven by snapshot, not hardcoded
+                if !viewModel.selectedModel.isEmpty {
+                    Text(viewModel.selectedModel)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("No model").font(.caption).foregroundStyle(.tertiary)
                 }
 
                 Divider().frame(height: 20)
 
-                // Effort
+                // Effort — snapshots may include it; otherwise show empty
                 Picker("Effort", selection: $viewModel.selectedEffort) {
-                    ForEach(viewModel.efforts, id: \.self) { e in
+                    ForEach(efforts, id: \.self) { e in
                         Text(e.capitalized).tag(e).font(.caption)
                     }
                 }
@@ -126,7 +128,7 @@ struct SessionToolbar: View {
 
                 // Permission mode
                 Picker("Access", selection: $viewModel.permissionMode) {
-                    ForEach(viewModel.permissions, id: \.self) { p in
+                    ForEach(permissions, id: \.self) { p in
                         Text(shortPermission(p)).tag(p).font(.caption)
                     }
                 }
