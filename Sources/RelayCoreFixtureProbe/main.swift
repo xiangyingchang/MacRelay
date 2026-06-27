@@ -94,7 +94,7 @@ func apply(_ event: CodexAppServerEvent) throws {
                 type: RelayEventType.error.rawValue,
                 payload: RelaySessionSnapshotPayload(snapshot: snapshot)
             )
-        case .rateLimitsUpdated, .exited, .approvalResolved:
+        case .rateLimitsUpdated, .exited, .approvalResolved, .modelListResult:
             break
         }
     }

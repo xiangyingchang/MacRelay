@@ -6,6 +6,8 @@ public struct SessionSnapshot {
     public var status: SessionStatus = .idle
     public var settings: SessionSettingsSnapshot?
     public var activeTurn: TurnSnapshot?
+    public var completedTurns: [TurnSnapshot] = []
+    public var availableModels: [String]?
     public var pendingApprovals: [String: ApprovalSnapshot] = [:]
     public var fileChanges: [String: FileChangeSnapshot] = [:]
     public var turnDiff: CodexTurnDiffUpdated?
@@ -36,6 +38,7 @@ public struct SessionSettingsSnapshot {
 
 public struct TurnSnapshot {
     public var id: String?
+    public var userMessage: String?
     public var assistantText = ""
     public var isCompleted = false
 }
@@ -104,6 +107,7 @@ public enum SessionReducerAction {
     case fileChangeUpdated(CodexFileChangeUpdated)
     case error(params: [String: Any])
     case rateLimitsUpdated(params: [String: Any])
+    case modelListResult(models: [String])
     case exited(code: Int32)
 }
 
@@ -143,7 +147,17 @@ public struct SessionStateReducer {
 
         case let .turnStarted(params):
             let turn = params["turn"] as? [String: Any]
-            state.activeTurn = TurnSnapshot(id: turn?["id"] as? String)
+            let newId = turn?["id"] as? String
+            // Archive previous turn if different
+            if let active = state.activeTurn, let activeId = active.id, activeId != newId, !active.isCompleted {
+                state.completedTurns.append(active)
+            }
+            state.activeTurn = TurnSnapshot(
+                id: newId,
+                userMessage: params["input"] as? String ?? params["userMessage"] as? String,
+                assistantText: "",
+                isCompleted: false
+            )
             state.status = .active
 
         case let .assistantDelta(delta):
@@ -153,7 +167,12 @@ public struct SessionStateReducer {
             state.activeTurn?.assistantText += delta
 
         case .turnCompleted:
-            state.activeTurn?.isCompleted = true
+            if let active = state.activeTurn {
+                var completed = active
+                completed.isCompleted = true
+                state.completedTurns.append(completed)
+                state.activeTurn = completed
+            }
             state.status = state.lastError == nil ? .completed : .failed
 
         case let .approvalRequested(request):
@@ -209,6 +228,9 @@ public struct SessionStateReducer {
                 rateLimitReachedType: rateLimits["rateLimitReachedType"] as? String
             )
 
+        case let .modelListResult(models):
+            state.availableModels = models
+
         case .exited:
             state.hasExited = true
             state.status = .exited
@@ -244,6 +266,9 @@ public struct SessionStateReducer {
                 return [.assistantDelta(params["delta"] as? String ?? "")]
             case "turn/completed":
                 return [.turnCompleted(params: params)]
+            case "model/list/done":
+                let models = (params["models"] as? [String]) ?? []
+                return [.modelListResult(models: models)]
             case "error":
                 return [.error(params: params)]
             case "account/rateLimits/updated":

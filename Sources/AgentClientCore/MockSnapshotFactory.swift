@@ -53,6 +53,8 @@ public enum MockSnapshotFactory {
                     try record(type: .error, payload: RelaySessionSnapshotPayload(snapshot: snapshot))
                 case .rateLimitsUpdated, .approvalResolved:
                     break
+                case .modelListResult:
+                    break
                 case .exited:
                     break
                 }

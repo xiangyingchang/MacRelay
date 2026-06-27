@@ -123,6 +123,8 @@ public final class MacRelayService {
             type = .error
         case .rateLimitsUpdated:
             type = nil
+        case .modelListResult:
+            type = nil
         }
 
         guard let type else { return nil }

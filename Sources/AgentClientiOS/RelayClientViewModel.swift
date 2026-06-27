@@ -140,6 +140,11 @@ public final class RelayClientViewModel: ObservableObject {
         }
     }
 
+    /// Models available from the Mac snapshot (populated by Codex model/list).
+    public var availableModels: [String] {
+        sessionSnapshot?.availableModels ?? []
+    }
+
     public func reconnect() async {
         guard let token,
               let host = pairedHost ?? httpClient?.baseURL.host,
@@ -263,6 +268,10 @@ public final class RelayClientViewModel: ObservableObject {
         lines.append("[status] \(snap.status)")
         if let model = snap.model {
             lines.append("[model] \(model)")
+        }
+        // Show user message if present
+        if let userMsg = snap.userMessage, !userMsg.isEmpty {
+            lines.append("[user] \(userMsg)")
         }
         if !snap.assistantText.isEmpty {
             let chunks = snap.assistantText.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }

@@ -120,6 +120,8 @@ public struct RelaySessionSnapshotPayload: Codable {
     public var model: String?
     public var effort: String?
     public var assistantText: String
+    public var userMessage: String?
+    public var availableModels: [String]?
     public var changedFiles: [String]
     public var rateLimitPlanType: String?
     public var errorMessage: String?
@@ -131,6 +133,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         model: String?,
         effort: String?,
         assistantText: String,
+        userMessage: String? = nil,
+        availableModels: [String]? = nil,
         changedFiles: [String],
         rateLimitPlanType: String? = nil,
         errorMessage: String? = nil
@@ -141,6 +145,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.model = model
         self.effort = effort
         self.assistantText = assistantText
+        self.userMessage = userMessage
+        self.availableModels = availableModels
         self.changedFiles = changedFiles
         self.rateLimitPlanType = rateLimitPlanType
         self.errorMessage = errorMessage
@@ -153,6 +159,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.model = snapshot.settings?.model
         self.effort = snapshot.settings?.effort
         self.assistantText = snapshot.activeTurn?.assistantText ?? ""
+        self.userMessage = snapshot.activeTurn?.userMessage
+        self.availableModels = snapshot.availableModels
         self.changedFiles = snapshot.turnDiff?.changedFiles ?? snapshot.fileChanges.values.compactMap(\.path)
         self.rateLimitPlanType = snapshot.rateLimit?.planType
         self.errorMessage = snapshot.lastError?.message

@@ -88,8 +88,18 @@ struct SessionToolbar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                // Model — driven by snapshot, not hardcoded
-                if !viewModel.selectedModel.isEmpty {
+                // Model — driven by snapshot availableModels
+                if !viewModel.availableModels.isEmpty {
+                    Picker("Model", selection: $viewModel.selectedModel) {
+                        ForEach(viewModel.availableModels, id: \.self) { m in
+                            Text(m).tag(m).font(.caption)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .onChange(of: viewModel.selectedModel) { _, _ in
+                        Task { await viewModel.sendSettingsUpdate() }
+                    }
+                } else if !viewModel.selectedModel.isEmpty {
                     Text(viewModel.selectedModel)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)

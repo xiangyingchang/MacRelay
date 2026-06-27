@@ -301,7 +301,16 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     // MARK: - Private: event handling
 
     private func handle(_ event: CodexAppServerEvent) {
-        onEventReceived?(event)
+        // Inject user message from pending draft into turn/started events
+        let augmentedEvent: CodexAppServerEvent
+        if case let .notification(method, params) = event, method == "turn/started", let draft = pendingDraft {
+            var augmentedParams = params ?? [:]
+            augmentedParams["input"] = draft.text
+            augmentedEvent = .notification(method: method, params: augmentedParams)
+        } else {
+            augmentedEvent = event
+        }
+        onEventReceived?(augmentedEvent)
 
         switch event {
         case let .response(id, result, error):
@@ -516,5 +525,11 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         } else if let models = result["models"] as? [String] {
             modelNames = models
         }
+        // Broadcast model list to relay connected clients
+        let modelEvent = CodexAppServerEvent.notification(
+            method: "model/list/done",
+            params: ["models": modelNames]
+        )
+        onEventReceived?(modelEvent)
     }
 }
