@@ -257,8 +257,8 @@ struct Composer: View {
                     Text("提出后续修改要求")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.textMuted)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 9)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 11)
                         .allowsHitTesting(false)
                 }
             }
