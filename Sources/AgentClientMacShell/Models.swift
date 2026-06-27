@@ -477,7 +477,15 @@ final class MacShellViewModel: ObservableObject {
         do {
             relayWSServer?.stop()
             try relayHTTPServer.start(host: relayServerHost, port: 0)
-            let wsServer = MacRelayWebSocketServer(relayService: relayService, pairingToken: relayHTTPServer.token)
+            let dispatcher = MacRelayRuntimeCommandDispatcher(
+                runtime: runtime,
+                defaultCWD: { self.projectCWD }
+            )
+            let wsServer = MacRelayWebSocketServer(
+                relayService: relayService,
+                pairingToken: relayHTTPServer.token,
+                commandDispatcher: dispatcher
+            )
             try wsServer.start(host: relayServerHost, port: 0)
             _ = wsServer.waitUntilReady(timeout: 2)
             relayWSServer = wsServer

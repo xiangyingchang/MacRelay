@@ -10,6 +10,7 @@ public final class MacRelayWebSocketServer {
     private let relayService: MacRelayService
     private let pairingToken: String?
     private let deviceTrustStore: DeviceTrustStore?
+    private let commandDispatcher: MacRelayRuntimeCommandDispatcher?
     private let nonceManager = NonceManager()
     private let queue: DispatchQueue
     private var listener: NWListener?
@@ -21,10 +22,12 @@ public final class MacRelayWebSocketServer {
     public init(relayService: MacRelayService,
                 pairingToken: String? = nil,
                 deviceTrustStore: DeviceTrustStore? = nil,
+                commandDispatcher: MacRelayRuntimeCommandDispatcher? = nil,
                 queue: DispatchQueue = DispatchQueue(label: "MacRelayWebSocketServer")) {
         self.relayService = relayService
         self.pairingToken = pairingToken
         self.deviceTrustStore = deviceTrustStore
+        self.commandDispatcher = commandDispatcher
         self.queue = queue
     }
 
@@ -271,6 +274,21 @@ public final class MacRelayWebSocketServer {
             case RelayCommandType.heartbeatPing.rawValue:
                 let connection = ConnectionSnapshotPayload(isPaired: true, isOnline: true, lastSeenSeq: relayService.newestSeq)
                 return try encode(RelayEnvelope(type: RelayEventType.heartbeat.rawValue, correlationID: id, payload: connection))
+
+            case RelayCommandType.turnStart.rawValue, RelayCommandType.sessionStart.rawValue:
+                guard let commandDispatcher, let payloadData else {
+                    return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "remote commands not supported on this server", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
+                }
+                let cmdType = RelayCommandType(rawValue: type) ?? .turnStart
+                let dispatchedText: String
+                do {
+                    let result = try MainActor.assumeIsolated { try commandDispatcher.dispatch(commandType: cmdType, payloadData: payloadData) }
+                    dispatchedText = result.description
+                } catch {
+                    return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "\(error)", "code": RelayErrorCode.generalError.code] as [String: String]))
+                }
+                return try encode(RelayEnvelope(type: type, correlationID: id, payload: ["dispatched": dispatchedText] as [String: String]))
+
             default:
                 return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "unsupported command", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
             }

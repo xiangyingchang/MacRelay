@@ -89,6 +89,15 @@ public final class RelayWebSocketClient {
         return try await sendAndDecode(cmd)
     }
 
+    /// Send a generic relay command with typed payload and decode the response.
+    public func sendCommand<Payload: Codable, Response: Decodable>(
+        type: RelayCommandType,
+        payload: Payload
+    ) async throws -> RelayEnvelope<Response> {
+        let cmd = RelayEnvelope(type: type.rawValue, payload: payload)
+        return try await sendAndDecode(cmd)
+    }
+
     // MARK: - Internal
 
     private func sendAndDecode<T: Decodable>(_ envelope: some Encodable) async throws -> T {

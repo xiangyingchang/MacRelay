@@ -12,6 +12,9 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var heartbeatOnline = false
     @Published public var pairingCode: String = ""
     @Published public var isConnecting = false
+    @Published public var conversationMessages: [String] = []
+    @Published public var draftText = ""
+    @Published public var isSending = false
 
     public let stateMachine = MobileConnectionStateMachine()
     private let httpClient: RelayHTTPClient?
@@ -180,8 +183,68 @@ public final class RelayClientViewModel: ObservableObject {
         pairingCode = ""
         sessionSnapshot = nil
         replayEvents = []
+        conversationMessages = []
         heartbeatOnline = false
         _ = stateMachine.transition(to: .unpaired)
+    }
+
+    public func sendTurn(text: String) async throws {
+        guard stateMachine.state == .connected else {
+            lastErrorCode = RelayErrorCode.generalError.code
+            throw RelayClientError.wsError("not connected")
+        }
+        isSending = true
+        defer { isSending = false }
+        conversationMessages.append("[user] \(text)")
+        let payload = RelayTurnStartCommandPayload(
+            sessionID: sessionSnapshot?.threadID ?? "",
+            input: text,
+            model: sessionSnapshot?.model ?? "claude-sonnet-4",
+            effort: "medium",
+            planMode: false,
+            permissionMode: "Read Only"
+        )
+        let response: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+            type: .turnStart,
+            payload: payload
+        )
+        // After command acknowledged, refresh snapshot to get updated conversation
+        try await refresh()
+        updateConversation()
+        lastErrorCode = nil
+    }
+
+    /// Build conversation message list from the latest snapshot.
+    public func updateConversation() {
+        guard let snap = sessionSnapshot else {
+            conversationMessages = []
+            return
+        }
+        var lines: [String] = []
+        lines.append("[status] \(snap.status)")
+        if let model = snap.model {
+            lines.append("[model] \(model)")
+        }
+        if !snap.assistantText.isEmpty {
+            let chunks = snap.assistantText.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            for chunk in chunks {
+                lines.append("[assistant] \(chunk)")
+            }
+        }
+        // Add replay events
+        for event in replayEvents {
+            switch event.type {
+            case "turn.delta":
+                if let data = try? JSONDecoder().decode(RelayEnvelope<[String: String]>.self, from: event.payloadData) {
+                    lines.append("[delta] \(data.payload["delta"] ?? "...")")
+                }
+            case "turn.completed":
+                lines.append("[event] turn completed")
+            default:
+                break
+            }
+        }
+        conversationMessages = lines
     }
 
     public func claimFromURL(_ url: URL) async throws {

@@ -27,6 +27,15 @@ public enum MacRelayRuntimeCommandDispatchResult: Equatable {
     case unsupported(String)
 }
 
+extension MacRelayRuntimeCommandDispatchResult: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .dispatched(let detail): return "dispatched: \(detail)"
+        case .unsupported(let detail): return "unsupported: \(detail)"
+        }
+    }
+}
+
 @MainActor
 public struct MacRelayRuntimeCommandDispatcher {
     private let runtime: MacRelayRuntimeBridge

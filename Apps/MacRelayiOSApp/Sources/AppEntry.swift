@@ -10,12 +10,12 @@ struct MacRelayiOSAppEntry: App {
             TabView {
                 PairingView(viewModel: viewModel)
                     .tabItem { Label("Pair", systemImage: "link") }
+
+                SessionWorkspaceView(viewModel: viewModel)
+                    .tabItem { Label("Session", systemImage: "rectangle.3.group") }
+
                 ConnectionStatusView(viewModel: viewModel)
                     .tabItem { Label("Net", systemImage: "antenna.radiowaves.left.and.right") }
-                SessionSnapshotView(viewModel: viewModel)
-                    .tabItem { Label("Sess", systemImage: "rectangle.3.group") }
-                EventReplayListView(viewModel: viewModel)
-                    .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
             }
             .onOpenURL { url in
                 Task {
