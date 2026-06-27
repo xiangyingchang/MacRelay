@@ -289,7 +289,9 @@ public final class MacRelayWebSocketServer {
                 }
                 let dispatchedText: String
                 do {
-                    let result = try MainActor.assumeIsolated { try commandDispatcher.dispatch(commandType: cmdType, payloadData: payloadData) }
+                    let result = try DispatchQueue.main.sync {
+                        try commandDispatcher.dispatch(commandType: cmdType, payloadData: payloadData)
+                    }
                     dispatchedText = result.description
                 } catch {
                     return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "\(error)", "code": RelayErrorCode.generalError.code] as [String: String]))
