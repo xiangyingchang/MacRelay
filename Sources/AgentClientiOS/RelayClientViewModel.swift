@@ -30,6 +30,7 @@ public final class RelayClientViewModel: ObservableObject {
     private let credentialStore: PairingCredentialStore
     private var pairedHost: String?
     private var pairedPort: UInt16?
+    private var pendingLocalUserMessages: [String] = []
 
     public var hasCredentials: Bool { credentialStore.token != nil }
     public var currentState: MobileClientState { stateMachine.state }
@@ -53,6 +54,20 @@ public final class RelayClientViewModel: ObservableObject {
             Task { @MainActor in
                 self?.connectionStatus = t.to.rawValue.capitalized
             }
+        }
+        wsClient.onSnapshot = { [weak self] envelope in
+            guard let self else { return }
+            self.sessionSnapshot = envelope.payload.session
+            self.syncToolbarFromSnapshot()
+            self.heartbeatOnline = envelope.payload.connection.isOnline
+            self.lastErrorCode = nil
+            self.updateConversation()
+        }
+        wsClient.onConnectionLost = { [weak self] _ in
+            guard let self else { return }
+            _ = self.stateMachine.networkLost()
+            self.heartbeatOnline = false
+            self.connectionStatus = "Connection lost"
         }
     }
 
@@ -119,9 +134,11 @@ public final class RelayClientViewModel: ObservableObject {
             sessionSnapshot = snap.payload.session
             syncToolbarFromSnapshot()
             heartbeatOnline = true
+            updateConversation()
             let replay = try await wsClient.getReplay(afterSeq: snap.payload.lastEventSeq > 5 ? snap.payload.lastEventSeq - 5 : 0, maxEvents: 20)
             if replay.payload.kind == "events" { replayEvents = replay.payload.events }
             _ = try? await wsClient.heartbeat()
+            updateConversation()
             lastErrorCode = nil
         } catch {
             lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
@@ -207,6 +224,7 @@ public final class RelayClientViewModel: ObservableObject {
         sessionSnapshot = nil
         replayEvents = []
         conversationMessages = []
+        pendingLocalUserMessages = []
         heartbeatOnline = false
         _ = stateMachine.transition(to: .unpaired)
     }
@@ -219,6 +237,7 @@ public final class RelayClientViewModel: ObservableObject {
         }
         isSending = true
         defer { isSending = false }
+        appendPendingUserMessage(text)
         let payload = RelayTurnStartCommandPayload(
             sessionID: sessionSnapshot?.threadID ?? "",
             input: text,
@@ -228,10 +247,16 @@ public final class RelayClientViewModel: ObservableObject {
             permissionMode: permissionMode
         )
         // Send and wait for Mac acknowledgement
-        let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+        let response: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
             type: .turnStart,
             payload: payload
         )
+        // Check for error — Mac may reject if previous turn is still processing
+        guard response.type != RelayEventType.error.rawValue else {
+            updateConversation()
+            lastErrorCode = response.payload["code"] ?? RelayErrorCode.generalError.code
+            return
+        }
         // Refresh state from Mac (Single Source of Truth)
         try await refresh()
         updateConversation()
@@ -261,7 +286,7 @@ public final class RelayClientViewModel: ObservableObject {
     /// Build conversation message list from the latest snapshot — Single Source of Truth.
     public func updateConversation() {
         guard let snap = sessionSnapshot else {
-            conversationMessages = []
+            conversationMessages = pendingLocalUserMessages.map { "[user] \($0)" }
             return
         }
         var lines: [String] = []
@@ -269,15 +294,34 @@ public final class RelayClientViewModel: ObservableObject {
         if let model = snap.model {
             lines.append("[model] \(model)")
         }
-        // Show user message if present
-        if let userMsg = snap.userMessage, !userMsg.isEmpty {
-            lines.append("[user] \(userMsg)")
-        }
-        if !snap.assistantText.isEmpty {
-            let chunks = snap.assistantText.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            for chunk in chunks {
-                lines.append("[assistant] \(chunk)")
+
+        let turns = snap.turns.isEmpty
+            ? [RelayTurnSnapshotPayload(
+                id: snap.threadID,
+                userMessage: nil,
+                assistantText: snap.assistantText,
+                isCompleted: snap.status == "completed"
+            )]
+            : snap.turns
+
+        for turn in turns {
+            if let userMsg = turn.userMessage, !userMsg.isEmpty {
+                lines.append("[user] \(userMsg)")
             }
+            if !turn.assistantText.isEmpty {
+                let chunks = turn.assistantText
+                    .components(separatedBy: "\n\n")
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                for chunk in chunks {
+                    lines.append("[assistant] \(chunk)")
+                }
+            }
+        }
+
+        let renderedUserMessages = Set(turns.compactMap(\.userMessage))
+        pendingLocalUserMessages.removeAll { renderedUserMessages.contains($0) }
+        for pending in pendingLocalUserMessages {
+            lines.append("[user] \(pending)")
         }
         // Add replay events
         for event in replayEvents {
@@ -293,6 +337,13 @@ public final class RelayClientViewModel: ObservableObject {
             }
         }
         conversationMessages = lines
+    }
+
+    private func appendPendingUserMessage(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        pendingLocalUserMessages.append(trimmed)
+        updateConversation()
     }
 
     public func claimFromURL(_ url: URL) async throws {

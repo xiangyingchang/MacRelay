@@ -121,10 +121,26 @@ public struct RelaySessionSnapshotPayload: Codable {
     public var effort: String?
     public var assistantText: String
     public var userMessage: String?
+    public var turns: [RelayTurnSnapshotPayload]
     public var availableModels: [String]?
     public var changedFiles: [String]
     public var rateLimitPlanType: String?
     public var errorMessage: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case threadID
+        case cwd
+        case status
+        case model
+        case effort
+        case assistantText
+        case userMessage
+        case turns
+        case availableModels
+        case changedFiles
+        case rateLimitPlanType
+        case errorMessage
+    }
 
     public init(
         threadID: String?,
@@ -134,6 +150,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         effort: String?,
         assistantText: String,
         userMessage: String? = nil,
+        turns: [RelayTurnSnapshotPayload] = [],
         availableModels: [String]? = nil,
         changedFiles: [String],
         rateLimitPlanType: String? = nil,
@@ -146,6 +163,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.effort = effort
         self.assistantText = assistantText
         self.userMessage = userMessage
+        self.turns = turns
         self.availableModels = availableModels
         self.changedFiles = changedFiles
         self.rateLimitPlanType = rateLimitPlanType
@@ -160,10 +178,57 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.effort = snapshot.settings?.effort
         self.assistantText = snapshot.activeTurn?.assistantText ?? ""
         self.userMessage = snapshot.activeTurn?.userMessage
+        var turns = snapshot.completedTurns.map(RelayTurnSnapshotPayload.init)
+        if let active = snapshot.activeTurn, turns.last?.id != active.id || turns.last?.isCompleted != active.isCompleted {
+            turns.append(RelayTurnSnapshotPayload(turn: active))
+        }
+        self.turns = turns
         self.availableModels = snapshot.availableModels
         self.changedFiles = snapshot.turnDiff?.changedFiles ?? snapshot.fileChanges.values.compactMap(\.path)
         self.rateLimitPlanType = snapshot.rateLimit?.planType
         self.errorMessage = snapshot.lastError?.message
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
+        self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        self.status = try container.decode(String.self, forKey: .status)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model)
+        self.effort = try container.decodeIfPresent(String.self, forKey: .effort)
+        self.assistantText = try container.decode(String.self, forKey: .assistantText)
+        self.userMessage = try container.decodeIfPresent(String.self, forKey: .userMessage)
+        self.turns = try container.decodeIfPresent([RelayTurnSnapshotPayload].self, forKey: .turns) ?? []
+        self.availableModels = try container.decodeIfPresent([String].self, forKey: .availableModels)
+        self.changedFiles = try container.decode([String].self, forKey: .changedFiles)
+        self.rateLimitPlanType = try container.decodeIfPresent(String.self, forKey: .rateLimitPlanType)
+        self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+    }
+}
+
+public struct RelayTurnSnapshotPayload: Codable, Equatable {
+    public var id: String?
+    public var userMessage: String?
+    public var assistantText: String
+    public var isCompleted: Bool
+
+    public init(
+        id: String?,
+        userMessage: String?,
+        assistantText: String,
+        isCompleted: Bool
+    ) {
+        self.id = id
+        self.userMessage = userMessage
+        self.assistantText = assistantText
+        self.isCompleted = isCompleted
+    }
+
+    public init(turn: TurnSnapshot) {
+        self.id = turn.id
+        self.userMessage = turn.userMessage
+        self.assistantText = turn.assistantText
+        self.isCompleted = turn.isCompleted
     }
 }
 
