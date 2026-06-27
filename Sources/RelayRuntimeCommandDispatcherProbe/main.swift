@@ -83,7 +83,7 @@ final class FakeRuntimeBridge: MacRelayRuntimeBridge {
 @MainActor
 func runRelayRuntimeCommandDispatcherProbe() throws {
         let runtime = FakeRuntimeBridge()
-        let dispatcher = MacRelayRuntimeCommandDispatcher(runtime: runtime, defaultCWD: { "/private/tmp/MacRelay" })
+        let dispatcher = MacRelayRuntimeCommandDispatcher(runtime: runtime, defaultCWD: { FileManager.default.currentDirectoryPath })
         let encoder = JSONEncoder()
 
         let turnPayload = RelayTurnStartCommandPayload(
@@ -97,7 +97,7 @@ func runRelayRuntimeCommandDispatcherProbe() throws {
         let turnResult = try dispatcher.dispatch(commandType: .turnStart, payloadData: encoder.encode(turnPayload))
         try expect(turnResult == .dispatched("session.turn.start"), "turn dispatch result mismatch")
         try expect(runtime.draftCalls.count == 1, "turn should enqueue one draft")
-        try expect(runtime.draftCalls[0].cwd == "/private/tmp/MacRelay", "turn cwd mismatch")
+        try expect(runtime.draftCalls[0].cwd == FileManager.default.currentDirectoryPath, "turn cwd mismatch")
         try expect(runtime.draftCalls[0].text == "hello from relay", "turn input mismatch")
         try expect(runtime.draftCalls[0].threadSandbox == "read-only", "thread sandbox mismatch")
         try expect(runtime.draftCalls[0].turnSandbox == "readOnly", "turn sandbox mismatch")

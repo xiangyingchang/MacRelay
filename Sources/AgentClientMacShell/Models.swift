@@ -57,7 +57,7 @@ final class MacShellViewModel: ObservableObject {
     @Published var selectedFileID = "mac-shell"
     @Published var commandApprovalVisible = true
     @Published private(set) var commandLog: [RelayCommandLogEntry] = [
-        RelayCommandLogEntry(type: .sessionStart, detail: "session.start cwd=/private/tmp/MacRelay"),
+        RelayCommandLogEntry(type: .sessionStart, detail: "session.start cwd=\(FileManager.default.currentDirectoryPath)"),
         RelayCommandLogEntry(type: .snapshotGet, detail: "snapshot.get seq=8")
     ]
 
@@ -200,9 +200,13 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
-    /// CWD for the current project.
+    /// CWD for the current project — dynamically detected, never hardcoded.
     var projectCWD: String {
-        "/private/tmp/MacRelay"
+        let cwd = FileManager.default.currentDirectoryPath
+        guard FileManager.default.fileExists(atPath: cwd) else {
+            return NSHomeDirectory()
+        }
+        return cwd
     }
 
     /// Sandbox for thread/start. Codex app-server 0.141.0 expects kebab-case.
