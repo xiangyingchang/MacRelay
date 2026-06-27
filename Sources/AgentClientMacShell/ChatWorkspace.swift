@@ -424,9 +424,6 @@ struct SessionMenu: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Theme.textPrimary)
             }
             .font(.system(size: 14, weight: .semibold))
             .padding(.horizontal, 10)
