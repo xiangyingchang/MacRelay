@@ -5,10 +5,12 @@ import Foundation
 
 public enum MacRelayBridgeError: Error, LocalizedError {
     case turnInProgress(String)
+    case sessionNotFound(String)
 
     public var errorDescription: String? {
         switch self {
         case .turnInProgress(let msg): return msg
+        case .sessionNotFound(let id): return "Session not found: \(id)"
         }
     }
 }
@@ -44,9 +46,19 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     @Published private(set) var isInitialized = false
     @Published private(set) var isInitializing = false
     @Published private(set) var sessions: [RelaySessionInfoPayload] = []
+    @Published private(set) var selectedSessionID: String?
+
+    var selectedSessionCWD: String? {
+        guard let id = selectedSessionID else { return nil }
+        return sessions.first(where: { $0.sessionID == id })?.cwd
+    }
 
     var onTurnIDChanged: ((String?) -> Void)?
     var onEventReceived: ((CodexAppServerEvent) -> Void)?
+    /// Fires when a new thread starts (thread/started notification).
+    /// The MacShellViewModel uses this to clear the conversation view
+    /// so a new session doesn't inherit old messages.
+    var onThreadStarted: (() -> Void)?
     var isProcessingTurn: Bool { pendingDraft != nil }
 
     // MARK: - Private state
@@ -318,6 +330,19 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     // MARK: - Private: event handling
 
     private func handle(_ event: CodexAppServerEvent) {
+        // Process notification side-effects BEFORE forwarding to relay,
+        // so recordSession (which populates the sessions array) completes
+        // before the relay broadcast snapshot checks runtime.sessions.
+        if case let .notification(method, params) = event, method == "thread/started" {
+            if let threadID = params?["id"] as? String
+                ?? (params?["thread"] as? [String: Any])?["id"] as? String {
+                currentThreadID = threadID
+                recordSession(threadID: threadID, params: params)
+                firePendingTurn(threadID: threadID)
+                onThreadStarted?()
+            }
+        }
+
         // Inject user message from pending draft into turn/started events
         let augmentedEvent: CodexAppServerEvent
         if case let .notification(method, params) = event, method == "turn/started", let draft = pendingDraft {
@@ -348,13 +373,8 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
 
         case let .notification(method, params) where method == "thread/started":
             statusText = "thread started"
-            if let threadID = params?["id"] as? String
-                ?? (params?["thread"] as? [String: Any])?["id"] as? String {
-                currentThreadID = threadID
-                recordSession(threadID: threadID, params: params)
-                // Auto-fire pending turn if we have a stashed draft
-                firePendingTurn(threadID: threadID)
-            }
+            // recordSession + firePendingTurn handled before onEventReceived above
+            _ = params
 
         case let .notification(method, params) where method == "turn/started":
             let extracted = Self.extractTurnID(from: params)
@@ -508,6 +528,11 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     /// After thread/started, fire the stashed draft → turn/start.
     private func firePendingTurn(threadID: String) {
         guard let draft = pendingDraft else { return }
+        guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            pendingDraft = nil
+            statusText = "thread ready"
+            return
+        }
         do {
             try startTurn(
                 threadID: threadID,
@@ -526,6 +551,11 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     /// If thread exists, send turn directly from stashed draft.
     private func startTurnFromDraft() throws {
         guard let draft = pendingDraft, let threadID = currentThreadID else { return }
+        guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            pendingDraft = nil
+            statusText = "thread ready"
+            return
+        }
         do {
             try startTurn(
                 threadID: threadID,
@@ -596,5 +626,25 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         latestTurnID = nil
         sessions.removeAll()
         print("[Log] Sessions stopped")
+    }
+
+    func clearCurrentThread() {
+        pendingDraft = nil
+        currentThreadID = nil
+        latestTurnID = nil
+        clearActiveTurn()
+        print("[Log] Current thread cleared")
+    }
+
+    func selectSession(sessionID: String) throws {
+        guard sessions.contains(where: { $0.sessionID == sessionID }) else {
+            throw MacRelayBridgeError.sessionNotFound("Session \(sessionID) not found")
+        }
+        // Just mark which session was selected — the next user turn will
+        // run in this session's context via selectedSessionCWD.
+        // Do NOT restart the app-server or create a new thread here,
+        // otherwise each selectSession would spawn a spurious new session.
+        selectedSessionID = sessionID
+        statusText = "session.select sessionID=\(sessionID)"
     }
 }

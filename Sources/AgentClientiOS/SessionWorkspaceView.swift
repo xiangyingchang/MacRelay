@@ -81,6 +81,7 @@ public struct SessionWorkspaceView: View {
 
 struct SessionToolbar: View {
     @ObservedObject var viewModel: RelayClientViewModel
+    @State private var showingSessionList = false
 
     private let efforts = ["low", "medium", "high", "xhigh"]
     private let permissions = ["Read Only", "Default", "Full Access"]
@@ -88,22 +89,23 @@ struct SessionToolbar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                // Session picker
-                if !viewModel.availableSessions.isEmpty {
-                    Picker("Session", selection: Binding(
-                        get: { viewModel.sessionSnapshot?.threadID ?? "" },
-                        set: { _ in }
-                    )) {
-                        ForEach(viewModel.availableSessions) { s in
-                            Text(s.sessionID.prefix(8)).tag(s.sessionID)
-                                .font(.caption)
-                        }
+                // Session button — opens full list sheet
+                Button {
+                    showingSessionList = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "rectangle.3.group")
+                            .font(.caption)
+                        Text(viewModel.selectedSessionID?.prefix(8) ?? "Session")
+                            .font(.caption)
+                            .lineLimit(1)
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 80)
                 }
-
-                // New Session button
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .sheet(isPresented: $showingSessionList) {
+                    SessionListView(viewModel: viewModel, isPresented: $showingSessionList)
+                }
                 Button {
                     Task {
                         try? await viewModel.startNewSession()
@@ -289,5 +291,197 @@ struct ComposerBar: View {
 
     private var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && isConnected
+    }
+}
+
+// MARK: - Session List
+
+struct SessionListView: View {
+    @ObservedObject var viewModel: RelayClientViewModel
+    @Binding var isPresented: Bool
+    @State private var isLoading = false
+    @State private var selectionError: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Search bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Filter by ID, model, or status", text: $viewModel.sessionFilterText)
+                        .textFieldStyle(.plain)
+                        .font(.subheadline)
+                    if !viewModel.sessionFilterText.isEmpty {
+                        Button { viewModel.sessionFilterText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+                Divider()
+
+                // Session list
+                if viewModel.availableSessions.isEmpty {
+                    ContentUnavailableView(
+                        "No Sessions",
+                        systemImage: "rectangle.3.group",
+                        description: Text("Active sessions will appear here when connected to Mac.")
+                    )
+                } else if viewModel.filteredSessions.isEmpty {
+                    ContentUnavailableView(
+                        "No Matches",
+                        systemImage: "magnifyingglass",
+                        description: Text("No sessions match \"\(viewModel.sessionFilterText)\".")
+                    )
+                } else {
+                    List(viewModel.filteredSessions) { session in
+                        Button {
+                            Task {
+                                isLoading = true
+                                selectionError = nil
+                                do {
+                                    try await viewModel.selectSession(sessionID: session.sessionID)
+                                    isPresented = false
+                                } catch {
+                                    selectionError = error.localizedDescription
+                                }
+                                isLoading = false
+                            }
+                        } label: {
+                            SessionRow(
+                                session: session,
+                                isSelected: session.sessionID == viewModel.selectedSessionID
+                            )
+                        }
+                        .disabled(isLoading)
+                    }
+                    .listStyle(.plain)
+                }
+
+                // Error state
+                if let error = selectionError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(8)
+                }
+
+                Divider()
+
+                // Bottom bar — New Session + count
+                HStack {
+                    Button {
+                        Task {
+                            isLoading = true
+                            try? await viewModel.startNewSession()
+                            try? await viewModel.refresh()
+                            isLoading = false
+                            isPresented = false
+                        }
+                    } label: {
+                        if isLoading {
+                            ProgressView().scaleEffect(0.8)
+                        } else {
+                            Label("New Session", systemImage: "plus.bubble")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(isLoading)
+
+                    Spacer()
+
+                    Text("\(viewModel.availableSessions.count) session(s)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .navigationTitle("Sessions")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { isPresented = false }
+                }
+            }
+        }
+    }
+}
+
+struct SessionRow: View {
+    let session: RelaySessionInfoPayload
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            // Status indicator
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                // Session ID (truncated) + model
+                HStack(spacing: 6) {
+                    Text(session.sessionID.prefix(10) + "...")
+                        .font(.system(.subheadline, design: .monospaced))
+                        .lineLimit(1)
+                    if let model = session.model {
+                        Text(model)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                // CWD + effort + created time
+                HStack(spacing: 8) {
+                    if let cwd = session.cwd {
+                        Label(cwd, systemImage: "folder")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                    if let effort = session.effort {
+                        Text("effort: \(effort)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    if let createdAt = session.createdAt {
+                        Text(createdAt, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.blue)
+            }
+        }
+        .padding(.vertical, 2)
+        .opacity(isSelected ? 1.0 : 0.85)
+    }
+
+    private var statusColor: Color {
+        switch session.status?.lowercased() {
+        case "active", "running": return .green
+        case "completed": return .blue
+        case "failed", "error": return .red
+        case "waiting", "waiting_on_approval": return .orange
+        default: return .gray
+        }
     }
 }

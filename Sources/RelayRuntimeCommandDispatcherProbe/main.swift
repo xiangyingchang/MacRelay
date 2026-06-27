@@ -82,6 +82,12 @@ final class FakeRuntimeBridge: MacRelayRuntimeBridge {
     func listSessions() -> [RelaySessionInfoPayload] { [] }
 
     func stopSession() throws {}
+
+    func selectSession(sessionID: String) throws {}
+
+    var selectedSessionCWD: String? { nil }
+
+    func clearCurrentThread() {}
 }
 
 @MainActor

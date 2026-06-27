@@ -37,6 +37,7 @@ public enum RelayCommandType: String, Codable, CaseIterable {
     case sessionList = "session.list"
     case sessionStart = "session.start"
     case sessionStop = "session.stop"
+    case sessionSelect = "session.select"
     case turnStart = "session.turn.start"
     case settingsUpdate = "session.settings.update"
     case approvalResolve = "approval.resolve"
@@ -354,6 +355,14 @@ public struct RelaySessionStopCommandPayload: Codable, Equatable {
     public init(sessionID: String, reason: String? = nil) {
         self.sessionID = sessionID
         self.reason = reason
+    }
+}
+
+public struct RelaySessionSelectCommandPayload: Codable, Equatable {
+    public var sessionID: String
+
+    public init(sessionID: String) {
+        self.sessionID = sessionID
     }
 }
 

@@ -75,6 +75,9 @@ final class LiveCodexRuntimeBridge: MacRelayRuntimeBridge {
     func resolveApproval(requestID: Int, decision: String) throws {}
     func listSessions() -> [RelaySessionInfoPayload] { [] }
     func stopSession() throws {}
+    func selectSession(sessionID: String) throws {}
+    var selectedSessionCWD: String? { nil }
+    func clearCurrentThread() {}
 }
 
 @MainActor

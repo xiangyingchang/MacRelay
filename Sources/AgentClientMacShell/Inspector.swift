@@ -1,25 +1,41 @@
 import SwiftUI
 
-struct Inspector: View {
+struct SettingsWorkspace: View {
     @ObservedObject var viewModel: MacShellViewModel
+    @State private var pairingExpanded = false
+    @State private var filesExpanded = false
+    @State private var diffExpanded = false
+    @State private var sessionExpanded = false
+    @State private var runtimeExpanded = false
+    @State private var relayExpanded = false
+    @State private var commandsExpanded = false
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Session Inspector")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Theme.textPrimary)
-                Spacer()
-                StatusPill(text: "Local", tone: .success)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Settings")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    StatusPill(text: "Local", tone: .success)
+                }
+                HStack(spacing: 8) {
+                    InspectorStat(title: "State", value: viewModel.sessionStatusText, tone: viewModel.sessionStatusTone)
+                    InspectorStat(title: "Relay", value: viewModel.relayServerRunning ? "Online" : "Off", tone: viewModel.relayServerRunning ? .success : .warning)
+                    InspectorStat(title: "Files", value: "\(viewModel.displayFiles.count)", tone: .accent)
+                }
             }
 
-            RelayPairingCard(viewModel: viewModel)
+            CollapsibleInspectorSection(title: "Phone Pairing", isExpanded: $pairingExpanded) {
+                RelayPairingCard(viewModel: viewModel)
+            }
 
-            InspectorSection(title: "Changed Files") {
+            CollapsibleInspectorSection(title: "Changed Files", badge: "\(viewModel.displayFiles.count)", isExpanded: $filesExpanded) {
                 VStack(spacing: 8) {
                     if viewModel.displayFiles.isEmpty {
-                        EmptyFilesView(runtimeMode: viewModel.runtimeMode)
+                        EmptyFilesView()
                     } else {
                         ForEach(viewModel.displayFiles) { file in
                             FileRow(
@@ -34,7 +50,7 @@ struct Inspector: View {
                 }
             }
 
-            InspectorSection(title: "Diff Preview") {
+            CollapsibleInspectorSection(title: "Diff Preview", isExpanded: $diffExpanded) {
                 if let file = viewModel.selectedDisplayFile {
                     DiffPreview(file: file)
                 } else {
@@ -42,9 +58,9 @@ struct Inspector: View {
                 }
             }
 
-            InspectorSection(title: "Session") {
+            CollapsibleInspectorSection(title: "Session", isExpanded: $sessionExpanded) {
                 VStack(spacing: 8) {
-                    if viewModel.runtimeMode == .real, let settings = viewModel.runtime.snapshot.settings {
+                    if let settings = viewModel.runtime.snapshot.settings {
                         KeyValue("Model", settings.model ?? viewModel.selectedModel)
                         KeyValue("Effort", settings.effort ?? viewModel.selectedEffort)
                         KeyValue("Approval", settings.approvalPolicy ?? "-")
@@ -61,16 +77,12 @@ struct Inspector: View {
                 }
             }
 
-            InspectorSection(title: "Codex Runtime") {
+            CollapsibleInspectorSection(title: "Codex Runtime", isExpanded: $runtimeExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         StatusPill(
                             text: viewModel.runtime.detection.isInstalled ? "Installed" : "Missing",
                             tone: viewModel.runtimeStatusTone
-                        )
-                        StatusPill(
-                            text: viewModel.runtimeMode.rawValue,
-                            tone: viewModel.runtimeMode == .real ? .accent : .warning
                         )
                         Spacer()
                         Text(viewModel.runtime.detection.version ?? viewModel.runtime.detection.executablePath ?? "Not found")
@@ -101,12 +113,10 @@ struct Inspector: View {
                         Spacer()
                     }
                 }
-                .padding(9)
-                .background(Theme.bgTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .panelStyle()
             }
 
-            InspectorSection(title: "Mac Relay") {
+            CollapsibleInspectorSection(title: "Mac Relay", isExpanded: $relayExpanded) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         StatusPill(text: viewModel.relayServerRunning ? "Running" : "Stopped",
@@ -141,12 +151,10 @@ struct Inspector: View {
                         Spacer()
                     }
                 }
-                .padding(9)
-                .background(Theme.bgTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .panelStyle()
             }
 
-            InspectorSection(title: "Mock Commands") {
+            CollapsibleInspectorSection(title: "Mock Commands", badge: "\(viewModel.commandLog.count)", isExpanded: $commandsExpanded) {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(viewModel.commandLog) { action in
                         VStack(alignment: .leading, spacing: 2) {
@@ -161,13 +169,98 @@ struct Inspector: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(9)
-                .background(Theme.codeBg)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .panelStyle(background: Theme.codeBg)
             }
         }
-        .padding(18)
+        .padding(20)
         .background(Theme.bgSecondary)
+        }
+    }
+}
+
+struct CollapsibleInspectorSection<Content: View>: View {
+    let title: String
+    var badge: String?
+    @Binding var isExpanded: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Theme.textMuted)
+                        .frame(width: 12)
+                    Text(title.uppercased())
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Theme.textMuted)
+                    if let badge {
+                        Text(badge)
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Theme.accentText)
+                            .padding(.horizontal, 6)
+                            .frame(height: 18)
+                            .background(Theme.accentSubtle)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 34)
+                .background(Theme.elevated)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+}
+
+struct InspectorStat: View {
+    let title: String
+    let value: String
+    let tone: StatusPill.Tone
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Theme.textMuted)
+            Text(value)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .background(Theme.elevated)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(color.opacity(0.22), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var color: Color {
+        switch tone {
+        case .accent: Theme.accentText
+        case .success: Theme.success
+        case .warning: Theme.warning
+        case .info: Theme.textSecondary
+        case .passive: Theme.textMuted
         }
     }
 }
@@ -176,9 +269,7 @@ struct RelayPairingCard: View {
     @ObservedObject var viewModel: MacShellViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            SectionLabel("PHONE PAIRING")
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
                     #if os(macOS)
                     if let qrImage = viewModel.relayPairingQRImage {
@@ -240,27 +331,22 @@ struct RelayPairingCard: View {
                         .foregroundStyle(Theme.textMuted)
                 }
             }
-            .padding(10)
-            .background(Theme.bgTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-        }
+            .panelStyle()
     }
 }
 
 struct EmptyFilesView: View {
-    let runtimeMode: RuntimeMode
-
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(Theme.textMuted)
-            Text(runtimeMode == .real ? "No file changes in this session" : "No changed files")
+            Text("No file changes in this session")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.textMuted)
             Spacer()
         }
         .padding(10)
-        .background(Theme.bgTertiary)
+        .background(Theme.elevated)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
@@ -304,7 +390,7 @@ struct FileRow: View {
             }
         }
         .padding(10)
-        .background(isActive ? Theme.accentSubtle : Theme.bgTertiary)
+        .background(isActive ? Theme.accentSubtle : Theme.elevated)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(isActive ? Theme.accent.opacity(0.45) : Theme.border, lineWidth: 1)
@@ -376,9 +462,9 @@ struct EmptyDiffView: View {
             .font(.system(size: 11, weight: .semibold, design: .monospaced))
             .foregroundStyle(Theme.textMuted)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(Theme.codeBg)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(10)
+        .background(Theme.codeBg)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -409,5 +495,18 @@ struct InspectorSection<Content: View>: View {
             SectionLabel(title.uppercased())
             content
         }
+    }
+}
+
+private extension View {
+    func panelStyle(background: Color = Theme.elevated) -> some View {
+        self
+            .padding(10)
+            .background(background)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Theme.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }

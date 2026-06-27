@@ -122,6 +122,14 @@ public struct SessionStateReducer {
             state.cwd = thread?["cwd"] as? String ?? params["cwd"] as? String ?? state.cwd
             let status = thread?["status"] as? [String: Any] ?? params["status"] as? [String: Any]
             state.status = SessionStatus(rawValue: status?["type"] as? String ?? "") ?? .idle
+            // New thread → clear conversation history from the previous session
+            state.activeTurn = nil
+            state.completedTurns = []
+            state.pendingApprovals = [:]
+            state.fileChanges = [:]
+            state.turnDiff = nil
+            state.lastError = nil
+            state.hasExited = false
 
         case let .statusChanged(params):
             let status = params["status"] as? [String: Any]

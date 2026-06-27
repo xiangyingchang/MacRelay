@@ -16,8 +16,12 @@ struct HeaderMetric: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 38)
-        .background(Theme.bgTertiary)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .background(Theme.elevated)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Theme.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -75,16 +79,26 @@ struct AppMark: View {
 
 struct IconOnlyButton: View {
     let systemName: String
+    let action: () -> Void
+
+    init(systemName: String, action: @escaping () -> Void = {}) {
+        self.systemName = systemName
+        self.action = action
+    }
 
     var body: some View {
-        Button(action: {}) {
+        Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.textMuted)
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
-        .background(Theme.bgTertiary)
+        .background(Theme.elevated)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Theme.border, lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -94,6 +108,8 @@ struct StatusPill: View {
         case accent
         case success
         case warning
+        case info
+        case passive
     }
 
     let text: String
@@ -106,7 +122,7 @@ struct StatusPill: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(color.opacity(0.14))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
     var color: Color {
@@ -114,6 +130,8 @@ struct StatusPill: View {
         case .accent: Theme.accentText
         case .success: Theme.success
         case .warning: Theme.warning
+        case .info: Theme.textSecondary
+        case .passive: Theme.textMuted
         }
     }
 }

@@ -18,6 +18,8 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var draftText = ""
     @Published public var isSending = false
     @Published public var availableSessions: [RelaySessionInfoPayload] = []
+    @Published public var selectedSessionID: String?
+    @Published public var sessionFilterText = ""
     /// Toolbar state — synced from snapshot on refresh
     @Published public var selectedModel = ""
     @Published public var selectedEffort = "medium"
@@ -64,6 +66,9 @@ public final class RelayClientViewModel: ObservableObject {
             self.heartbeatOnline = envelope.payload.connection.isOnline
             self.lastErrorCode = nil
             self.updateConversation()
+            if let activeID = envelope.payload.activeSessionID {
+                self.selectedSessionID = activeID
+            }
         }
         wsClient.onConnectionLost = { [weak self] _ in
             guard let self else { return }
@@ -169,6 +174,18 @@ public final class RelayClientViewModel: ObservableObject {
     /// Models available from the Mac snapshot (populated by Codex model/list).
     public var availableModels: [String] {
         sessionSnapshot?.availableModels ?? []
+    }
+
+    /// Filtered session list for the session picker UI.
+    public var filteredSessions: [RelaySessionInfoPayload] {
+        if sessionFilterText.isEmpty { return availableSessions }
+        let lower = sessionFilterText.lowercased()
+        return availableSessions.filter { s in
+            s.sessionID.lowercased().contains(lower) ||
+            (s.model?.lowercased().contains(lower) ?? false) ||
+            (s.status?.lowercased().contains(lower) ?? false) ||
+            (s.cwd?.lowercased().contains(lower) ?? false)
+        }
     }
 
     public func reconnect() async {
@@ -299,20 +316,37 @@ public final class RelayClientViewModel: ObservableObject {
     public func fetchSessions() async -> [RelaySessionInfoPayload] {
         guard stateMachine.state == .connected else { return [] }
         do {
-            let response: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+            let response: RelayEnvelope<[RelaySessionInfoPayload]> = try await wsClient.sendCommand(
                 type: .sessionList,
                 payload: [:] as [String: String]
             )
-            return []
+            return response.payload
         } catch {
             lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
             return []
         }
     }
 
-    /// Create a new session on Mac.
+    /// Select (switch to) a session on Mac. Mac will stop the current
+    /// thread and start a fresh one in the selected session's project context.
+    public func selectSession(sessionID: String) async throws {
+        guard stateMachine.state == .connected else { throw RelayClientError.wsError("not connected") }
+        self.selectedSessionID = sessionID
+        let payload = RelaySessionSelectCommandPayload(sessionID: sessionID)
+        let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+            type: .sessionSelect,
+            payload: payload
+        )
+        try await refresh()
+    }
+
+    /// Create a new session on Mac. Mac creates a thread (even without prompt)
+    /// and broadcasts it via availableSessions. We poll until the count
+    /// increases — just checking non-empty is wrong when sessions already exist.
     public func startNewSession(initialPrompt: String? = nil) async throws {
         guard stateMachine.state == .connected else { throw RelayClientError.wsError("not connected") }
+        let existingIDs = Set(self.availableSessions.map(\.sessionID))
+        let existingCount = self.availableSessions.count
         let payload = RelaySessionStartCommandPayload(
             cwd: sessionSnapshot?.cwd ?? FileManager.default.currentDirectoryPath,
             model: selectedModel.isEmpty ? nil : selectedModel,
@@ -325,6 +359,16 @@ public final class RelayClientViewModel: ObservableObject {
             type: .sessionStart,
             payload: payload
         )
+        // The Mac init chain is async (initialize → model/list → thread/start).
+        // Poll snapshot until a new session appears.
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await refreshSnapshot(includeReplay: false)
+            if self.availableSessions.count > existingCount {
+                return
+            }
+        }
     }
 
     /// Build conversation message list from the latest snapshot — Single Source of Truth.
@@ -334,11 +378,6 @@ public final class RelayClientViewModel: ObservableObject {
             return
         }
         var lines: [String] = []
-        lines.append("[status] \(snap.status)")
-        if let model = snap.model {
-            lines.append("[model] \(model)")
-        }
-
         let turns = snap.turns.isEmpty
             ? [RelayTurnSnapshotPayload(
                 id: snap.threadID,

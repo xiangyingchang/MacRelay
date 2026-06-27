@@ -3,13 +3,6 @@ import Combine
 import Foundation
 import SwiftUI
 
-// MARK: - Runtime Mode
-
-enum RuntimeMode: String, CaseIterable {
-    case mock = "Mock"
-    case real = "Real"
-}
-
 // MARK: - MacShellViewModel
 
 @MainActor
@@ -24,7 +17,6 @@ final class MacShellViewModel: ObservableObject {
         )
     )
 
-    @Published private(set) var snapshot = MockSnapshotFactory.makeRelaySnapshot()
     @Published private(set) var relaySnapshot = RelaySnapshotPayload(
         activeSessionID: nil,
         session: nil,
@@ -46,7 +38,6 @@ final class MacShellViewModel: ObservableObject {
     private let relayHostModeConfigKey = "MacRelayHostMode"
     private lazy var relayHTTPServer = MacRelayHTTPServer(relayService: relayService)
     private var relayWSServer: MacRelayWebSocketServer?
-    @Published var runtimeMode: RuntimeMode = .mock
     @Published var activeRunID = "run-polish"
     @Published var activeNav = "Codex"
     @Published var selectedModel: String
@@ -68,35 +59,27 @@ final class MacShellViewModel: ObservableObject {
     private var streamingTurnID: String?
     /// Previous assistant text length, to detect new delta content.
     private var lastAssistantTextLength = 0
-    /// Whether we've started a real session (to clear mock messages once).
-    private var hasStartedRealSession = false
-
     let navItems: [NavItem] = [
-        NavItem(title: "Codex", symbol: "message"),
+        NavItem(title: "Codex", symbol: "plus.bubble"),
         NavItem(title: "Sessions", symbol: "clock"),
-        NavItem(title: "Files", symbol: "folder"),
-        NavItem(title: "Approvals", symbol: "checklist"),
         NavItem(title: "Models", symbol: "square.stack.3d.up"),
         NavItem(title: "Settings", symbol: "gearshape")
     ]
 
-    let runs: [ActiveRun] = [
-        ActiveRun(id: "run-polish", title: "Mac shell polish", profile: "Codex", status: "running"),
-        ActiveRun(id: "run-relay", title: "Relay M1", profile: "Codex", status: "completed")
-    ]
+    /// Sessions displayed in the sidebar — from runtime.
+    var displaySessions: [SessionListItem] {
+        runtime.sessions.map { s in
+            SessionListItem(
+                id: s.sessionID,
+                title: String(s.sessionID.prefix(10)),
+                subtitle: [s.model, s.cwd].compactMap { $0 }.joined(separator: " · "),
+                status: s.status ?? "idle",
+                count: 0
+            )
+        }
+    }
 
-    let sessions: [SessionListItem] = [
-        SessionListItem(id: "run-polish", title: "Mac shell polish", subtitle: "Hermes-style workspace, approval, diff", status: "running", count: 2),
-        SessionListItem(id: "iphone", title: "iPhone handoff", subtitle: "LAN pairing and session takeover", status: "waiting", count: 1),
-        SessionListItem(id: "relay", title: "App-server relay", subtitle: "stdio, snapshots, replay, approval", status: "completed", count: 0),
-        SessionListItem(id: "prd", title: "Product spec", subtitle: "PRD and execution plan in Obsidian", status: "completed", count: 0)
-    ]
-
-    @Published var messages: [ConversationMessage] = [
-        ConversationMessage(role: "User", text: "参考 Hermes Desktop，把 Mac 客户端的 UI 调整成更高级的工作台，而不是普通三栏 demo。"),
-        ConversationMessage(role: "Codex", text: "已读取 Hermes Desktop 的 Layout、SidebarRecentSessions、ActiveSessionsBar、ChatInput、ModelPicker 和 ReasoningEffortPicker。v3 会采用左侧导航 + 近期 session、顶部 active session bar、底部复合 composer。"),
-        ConversationMessage(role: "Tool", text: "swift build --product AgentClientMacShell")
-    ]
+    @Published var messages: [ConversationMessage] = []
 
     @Published var files: [ChangedFileMock] = [
         ChangedFileMock(id: "mac-shell", path: "Sources/AgentClientMacShell/main.swift", status: "Modified", impact: "+420 -360", reviewState: "Pending"),
@@ -110,7 +93,9 @@ final class MacShellViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     var activeSession: SessionListItem {
-        sessions.first { $0.id == activeRunID } ?? sessions[0]
+        displaySessions.first { $0.id == activeRunID }
+            ?? displaySessions.first
+            ?? SessionListItem(id: "", title: "No session", subtitle: "", status: "idle", count: 0)
     }
 
     var selectedFile: ChangedFileMock {
@@ -118,8 +103,7 @@ final class MacShellViewModel: ObservableObject {
     }
 
     var displayFiles: [ChangedFileMock] {
-        guard runtimeMode == .real else { return files }
-        return runtime.snapshot.fileChanges.values
+        runtime.snapshot.fileChanges.values
             .sorted { ($0.path ?? $0.id) < ($1.path ?? $1.id) }
             .map { change in
                 ChangedFileMock(
@@ -138,11 +122,10 @@ final class MacShellViewModel: ObservableObject {
     }
 
     var pendingApproval: RelayApprovalPayload? {
-        if runtimeMode == .real, let realApproval = runtime.snapshot.pendingApprovals.values.first(where: { $0.isPending }) {
+        if let realApproval = runtime.snapshot.pendingApprovals.values.first(where: { $0.isPending }) {
             return RelayApprovalPayload(approval: realApproval)
         }
-        guard runtimeMode == .mock, commandApprovalVisible else { return nil }
-        return snapshot.pendingApprovals.first
+        return nil
     }
 
     var modelOptions: [String] {
@@ -153,15 +136,11 @@ final class MacShellViewModel: ObservableObject {
         runtime.detection.isInstalled ? .success : .warning
     }
 
-    /// Real-mode session status text derived from runtime.snapshot.
-    /// Maps SessionStatus + streaming/error state to a user-facing label.
-    var realSessionStatusText: String {
-        guard runtimeMode == .real else { return activeSession.status.capitalized }
+    /// Session status text derived from runtime.snapshot.
+    var sessionStatusText: String {
         switch runtime.snapshot.status {
-        case .idle:
-            return "Idle"
+        case .idle: return "Idle"
         case .active:
-            // Refine "active" into running vs streaming
             if runtime.snapshot.pendingApprovals.values.contains(where: { $0.isPending }) {
                 return "Waiting"
             }
@@ -169,24 +148,16 @@ final class MacShellViewModel: ObservableObject {
                 return turn.assistantText.isEmpty ? "Running" : "Streaming"
             }
             return "Running"
-        case .waitingOnApproval:
-            return "Waiting"
-        case .systemError:
-            return "Error"
-        case .completed:
-            return "Completed"
-        case .failed:
-            return "Failed"
-        case .exited:
-            return "Exited"
+        case .waitingOnApproval: return "Waiting"
+        case .systemError: return "Error"
+        case .completed: return "Completed"
+        case .failed: return "Failed"
+        case .exited: return "Exited"
         }
     }
 
-    /// Real-mode session status pill color derived from runtime.snapshot.
-    var realSessionStatusTone: StatusPill.Tone {
-        guard runtimeMode == .real else {
-            return activeSession.status == "waiting" ? .warning : .accent
-        }
+    /// Session status pill color derived from runtime.snapshot.
+    var sessionStatusTone: StatusPill.Tone {
         switch runtime.snapshot.status {
         case .idle: return .accent
         case .active:
@@ -236,10 +207,16 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
+    private let modelConfigKey = "MacShellSelectedModel"
+    private let effortConfigKey = "MacShellSelectedEffort"
+    private let planModeConfigKey = "MacShellPlanMode"
+    private let permissionConfigKey = "MacShellPermissionMode"
+
     init() {
-        let initial = MockSnapshotFactory.makeRelaySnapshot()
-        self.snapshot = initial
-        self.selectedModel = initial.session?.model ?? "gpt-5.5"
+        self.selectedModel = UserDefaults.standard.string(forKey: modelConfigKey) ?? "gpt-5.5"
+        self.selectedEffort = UserDefaults.standard.string(forKey: effortConfigKey) ?? "low"
+        self.planModeEnabled = UserDefaults.standard.bool(forKey: planModeConfigKey)
+        self.selectedPermissionMode = UserDefaults.standard.string(forKey: permissionConfigKey) ?? "Read Only"
         self.relayServerConfiguredToStart = UserDefaults.standard.bool(forKey: relayServerConfigKey)
         let lanIP = RelayHostDetector.primaryLANIPv4()
         self.relayLANIPv4 = lanIP
@@ -282,26 +259,59 @@ final class MacShellViewModel: ObservableObject {
                 self?.ingestRelayEvent(event)
             }
         }
+
+        runtime.onThreadStarted = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                // New thread = new session → clear old conversation
+                self.messages.removeAll()
+                self.streamingMessageID = nil
+                self.streamingTurnID = nil
+                self.lastAssistantTextLength = 0
+            }
+        }
     }
 
     // MARK: - Actions
+
+    /// Start a fresh session: clear current thread, create a new one,
+    /// and clear the conversation view.
+    func startNewSession() {
+        // Immediate visual feedback — clear conversation before the async chain runs
+        messages.removeAll()
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
+        messages.append(ConversationMessage(role: "Tool", text: "Starting new session…"))
+        do {
+            // Clear current thread so enqueueDraft creates a fresh one
+            // (same logic as the iOS session.start path).
+            runtime.clearCurrentThread()
+            try runtime.enqueueDraft(
+                cwd: projectCWD,
+                text: "",
+                model: selectedModel,
+                effort: selectedEffort,
+                threadSandbox: threadSandboxValue,
+                turnSandbox: turnSandboxValue,
+                approvalPolicy: approvalPolicyValue
+            )
+            record(.sessionStart, "session.start cwd=\(projectCWD)")
+        } catch {
+            messages.append(ConversationMessage(role: "Tool", text: "Failed to start new session: \(error)"))
+        }
+    }
 
     func sendDraft() {
         let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        switch runtimeMode {
-        case .mock:
-            sendDraftMock(trimmed)
-        case .real:
-            sendDraftReal(trimmed)
-        }
-
+        sendDraftReal(trimmed)
         draftText = ""
     }
 
     func approveCommand() {
-        if runtimeMode == .real, let (_, approval) = runtime.snapshot.pendingApprovals.first(where: { $0.value.isPending }) {
+        if let (_, approval) = runtime.snapshot.pendingApprovals.first(where: { $0.value.isPending }) {
             do {
                 try runtime.resolveApproval(requestID: approval.requestID, decision: "accept")
                 messages.append(ConversationMessage(role: "System", text: "Command approval accepted (request \(approval.requestID))."))
@@ -317,7 +327,7 @@ final class MacShellViewModel: ObservableObject {
     }
 
     func discardCommand() {
-        if runtimeMode == .real, let (_, approval) = runtime.snapshot.pendingApprovals.first(where: { $0.value.isPending }) {
+        if let (_, approval) = runtime.snapshot.pendingApprovals.first(where: { $0.value.isPending }) {
             do {
                 try runtime.resolveApproval(requestID: approval.requestID, decision: "reject")
                 messages.append(ConversationMessage(role: "System", text: "Command approval rejected (request \(approval.requestID))."))
@@ -343,10 +353,16 @@ final class MacShellViewModel: ObservableObject {
     }
 
     func recordSettingsUpdate() {
-        // Real mode: send thread/settings/update when app-server is initialized
+        // Persist to UserDefaults
+        UserDefaults.standard.set(selectedModel, forKey: modelConfigKey)
+        UserDefaults.standard.set(selectedEffort, forKey: effortConfigKey)
+        UserDefaults.standard.set(planModeEnabled, forKey: planModeConfigKey)
+        UserDefaults.standard.set(selectedPermissionMode, forKey: permissionConfigKey)
+
+        // Send thread/settings/update when app-server is initialized
         // and a thread exists. Otherwise silently skip — the settings will be
         // applied at thread/start or turn/start time via enqueueDraft.
-        if runtimeMode == .real, runtime.isInitialized, runtime.currentThreadID != nil {
+        if runtime.isInitialized, runtime.currentThreadID != nil {
             do {
                 try runtime.updateSettings(
                     model: selectedModel,
@@ -533,21 +549,7 @@ final class MacShellViewModel: ObservableObject {
 
     // MARK: - Mock sendDraft
 
-    private func sendDraftMock(_ text: String) {
-        messages.append(ConversationMessage(role: "User", text: text))
-        messages.append(ConversationMessage(role: "Codex", text: "Queued turn/start for \(selectedModel), \(selectedEffort), \(planModeEnabled ? "Plan" : "Act"), \(selectedPermissionMode)."))
-        record(.turnStart, "session.turn.start model=\(selectedModel) effort=\(selectedEffort) access=\(selectedPermissionMode)")
-    }
-
-    // MARK: - Real sendDraft
-
     private func sendDraftReal(_ text: String) {
-        // Clear mock messages on first real send
-        if !hasStartedRealSession {
-            messages.removeAll()
-            hasStartedRealSession = true
-        }
-
         messages.append(ConversationMessage(role: "User", text: text))
 
         // Add a streaming placeholder that will be updated by delta events
@@ -585,7 +587,6 @@ final class MacShellViewModel: ObservableObject {
     // MARK: - Snapshot → Messages Streaming
 
     private func handleSnapshotUpdate(_ newSnapshot: SessionSnapshot) {
-        guard runtimeMode == .real else { return }
         guard let streamID = streamingMessageID else { return }
 
         // Stream assistant text deltas into the placeholder message
@@ -631,11 +632,25 @@ final class MacShellViewModel: ObservableObject {
     }
 
     private func handleLatestTurnID(_ turnID: String?) {
-        guard runtimeMode == .real, streamingMessageID != nil, let turnID else { return }
+        guard streamingMessageID != nil, let turnID else { return }
         streamingTurnID = turnID
     }
 
     private func ingestRelayEvent(_ event: CodexAppServerEvent) {
+        // Remote turn/started — inject user message into Mac UI when the turn
+        // came from an iOS client (streamingMessageID is nil because sendDraftReal
+        // wasn't called locally).
+        if case let .notification(method, params) = event, method == "turn/started",
+           let input = params?["input"] as? String, !input.isEmpty,
+           streamingMessageID == nil {
+            messages.append(ConversationMessage(role: "User", text: input))
+            let streamingMsg = ConversationMessage(role: "Codex", text: "…")
+            streamingMessageID = streamingMsg.id
+            streamingTurnID = nil
+            lastAssistantTextLength = 0
+            messages.append(streamingMsg)
+        }
+
         do {
             let events = try relayService.ingest(event)
             guard !events.isEmpty else { return }
@@ -683,13 +698,6 @@ struct NavItem: Identifiable {
     let id = UUID()
     let title: String
     let symbol: String
-}
-
-struct ActiveRun: Identifiable {
-    let id: String
-    let title: String
-    let profile: String
-    let status: String
 }
 
 struct SessionListItem: Identifiable {

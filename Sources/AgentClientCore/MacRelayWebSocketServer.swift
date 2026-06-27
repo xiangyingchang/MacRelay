@@ -275,7 +275,16 @@ public final class MacRelayWebSocketServer {
             }
             switch type {
             case RelayCommandType.snapshotGet.rawValue:
-                return try encode(relayService.snapshotEnvelope(correlationID: id))
+                var envelope = relayService.snapshotEnvelope(correlationID: id)
+                // Inject available sessions so iOS clients see the session list
+                // on initial snapshot.get (not just push broadcasts).
+                if let dispatcher = commandDispatcher {
+                    let sessions = DispatchQueue.main.sync { dispatcher.listSessions() }
+                    if !sessions.isEmpty {
+                        envelope.payload.availableSessions = sessions
+                    }
+                }
+                return try encode(envelope)
             case RelayCommandType.replayFrom.rawValue:
                 let replayRequest = try payloadData.map {
                     try JSONDecoder().decode(RelayReplayRequestPayload.self, from: $0)
@@ -286,7 +295,15 @@ public final class MacRelayWebSocketServer {
                 let connection = ConnectionSnapshotPayload(isPaired: true, isOnline: true, lastSeenSeq: relayService.newestSeq)
                 return try encode(RelayEnvelope(type: RelayEventType.heartbeat.rawValue, correlationID: id, payload: connection))
 
-            case RelayCommandType.turnStart.rawValue, RelayCommandType.sessionStart.rawValue, RelayCommandType.settingsUpdate.rawValue, RelayCommandType.sessionList.rawValue, RelayCommandType.sessionStop.rawValue:
+            case RelayCommandType.sessionList.rawValue:
+                guard let commandDispatcher else {
+                    return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "remote commands not supported on this server", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
+                }
+                let sessions = DispatchQueue.main.sync { commandDispatcher.listSessions() }
+                let payload = RelayEnvelope(type: type, correlationID: id, payload: sessions)
+                return try encode(payload)
+
+            case RelayCommandType.turnStart.rawValue, RelayCommandType.sessionStart.rawValue, RelayCommandType.settingsUpdate.rawValue, RelayCommandType.sessionStop.rawValue, RelayCommandType.sessionSelect.rawValue:
                 guard let commandDispatcher, let payloadData else {
                     return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "remote commands not supported on this server", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
                 }
@@ -295,10 +312,10 @@ public final class MacRelayWebSocketServer {
                     cmdType = .settingsUpdate
                 } else if type == RelayCommandType.sessionStart.rawValue {
                     cmdType = .sessionStart
-                } else if type == RelayCommandType.sessionList.rawValue {
-                    cmdType = .sessionList
                 } else if type == RelayCommandType.sessionStop.rawValue {
                     cmdType = .sessionStop
+                } else if type == RelayCommandType.sessionSelect.rawValue {
+                    cmdType = .sessionSelect
                 } else {
                     cmdType = .turnStart
                 }
