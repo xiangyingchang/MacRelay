@@ -19,6 +19,17 @@ public final class MacRelayWebSocketServer {
     private var readySemaphore: DispatchSemaphore?
     private var failedStartError: NWError?
 
+    /// Broadcast a data blob to all authenticated connections.
+    public func broadcast(data: Data) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            for (id, authed) in self.connectionAuthenticated where authed {
+                guard let conn = self.connections.first(where: { ObjectIdentifier($0) == id }) else { continue }
+                self.send(data, on: conn)
+            }
+        }
+    }
+
     public init(relayService: MacRelayService,
                 pairingToken: String? = nil,
                 deviceTrustStore: DeviceTrustStore? = nil,

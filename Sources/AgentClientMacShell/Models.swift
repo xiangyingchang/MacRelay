@@ -642,6 +642,12 @@ final class MacShellViewModel: ObservableObject {
             relaySnapshot = relayService.snapshotEnvelope().payload
             relayEventCount = relayService.eventCount
             relayStatusText = "relay seq=\(relaySnapshot.lastEventSeq) events=\(relayEventCount)"
+            // Active push to all connected WebSocket clients
+            let snapshotEnvelope = relayService.snapshotEnvelope()
+            if let data = try? JSONEncoder().encode(snapshotEnvelope) {
+                relayWSServer?.broadcast(data: data)
+                print("[Relay] broadcast snapshot seq=\(relaySnapshot.lastEventSeq) type=\(events.last?.type ?? "?")")
+            }
         } catch {
             relayStatusText = "relay error: \(error)"
         }

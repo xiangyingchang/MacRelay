@@ -1,6 +1,18 @@
 import AgentClientCore
 import Foundation
 
+// MARK: - Errors
+
+public enum MacRelayBridgeError: Error, LocalizedError {
+    case turnInProgress(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .turnInProgress(let msg): return msg
+        }
+    }
+}
+
 // MARK: - Pending Request Registry
 
 enum PendingRequestKind: String {
@@ -32,9 +44,11 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     @Published private(set) var isInitialized = false
     @Published private(set) var isInitializing = false
 
-    /// Called on every CodexAppServerEvent for external observers.
+    var onTurnIDChanged: ((String?) -> Void)?
     var onEventReceived: ((CodexAppServerEvent) -> Void)?
+    var isProcessingTurn: Bool { pendingDraft != nil }
 
+    // MARK: - Private state
     private var client: CodexAppServerClient?
     private let reducer = SessionStateReducer()
     private var pendingRequests: [Int: PendingRequest] = [:]
@@ -107,7 +121,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
 
     /// Enqueues a user draft. If the app-server isn't initialized yet,
     /// starts the full chain: startAppServer → initialize → model/list → thread/start → turn/start.
-    /// Each step waits for the previous response before proceeding.
+    @discardableResult
     func enqueueDraft(
         cwd: String,
         text: String,
@@ -117,6 +131,9 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         turnSandbox: String,
         approvalPolicy: String
     ) throws {
+        guard !isProcessingTurn else {
+            throw MacRelayBridgeError.turnInProgress("previous turn still processing — wait for completion")
+        }
         pendingDraft = DraftParams(
             cwd: cwd, text: text,
             model: model, effort: effort,
@@ -339,12 +356,24 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
             }
 
         case let .notification(method, params) where method == "turn/started":
-            if let turnID = Self.extractTurnID(from: params) {
+            let extracted = Self.extractTurnID(from: params)
+            if let turnID = extracted {
                 latestTurnID = turnID
             }
+            print("[Log] Received CLI Turn Started: \(extracted ?? "?")")
+
+        case let .notification(method, params) where method == "item/agentMessage/delta":
+            print("[Log] Received CLI Delta: \(params?["messageID"] ?? params?["messageId"] ?? params?["delta"] ?? "?")")
+            // Delta logged; reducer handles the text append
+
+        case let .notification(method, params) where method == "turn/completed":
+            let turnID = Self.extractTurnID(from: params) ?? "?"
+            print("[Log] Received CLI Turn Completed: \(turnID)")
+            pendingDraft = nil
 
         case let .notification(method, _):
             statusText = "notification: \(method)"
+            print("[Log] Notification: \(method)")
 
         #if os(macOS)
         case let .exit(code, _):
