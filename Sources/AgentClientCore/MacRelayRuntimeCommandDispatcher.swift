@@ -20,6 +20,12 @@ public protocol MacRelayRuntimeBridge: AnyObject {
     ) throws -> Int
 
     func resolveApproval(requestID: Int, decision: String) throws
+
+    /// Return all sessions (threads) known to this runtime.
+    func listSessions() -> [RelaySessionInfoPayload]
+
+    /// Stop the current session / thread.
+    func stopSession() throws
 }
 
 public enum MacRelayRuntimeCommandDispatchResult: Equatable {
@@ -95,6 +101,15 @@ public struct MacRelayRuntimeCommandDispatcher {
             let payload = try decoder.decode(RelayApprovalResolveCommandPayload.self, from: payloadData)
             try runtime.resolveApproval(requestID: payload.requestID, decision: payload.decision)
             return .dispatched("approval.resolve")
+
+        case .sessionList:
+            let sessions = runtime.listSessions()
+            let data = try JSONEncoder().encode(sessions)
+            return .dispatched("session.list count=\(sessions.count)")
+
+        case .sessionStop:
+            try runtime.stopSession()
+            return .dispatched("session.stop")
 
         default:
             return .unsupported("\(commandType.rawValue) not routed to CodexRuntimeBridge")

@@ -73,6 +73,8 @@ final class LiveCodexRuntimeBridge: MacRelayRuntimeBridge {
     func enqueueDraft(cwd: String, text: String, model: String?, effort: String?, threadSandbox: String, turnSandbox: String, approvalPolicy: String) throws {}
     func updateSettings(model: String?, effort: String?, approvalPolicy: String?, sandboxPolicy: String?) throws -> Int { return 0 }
     func resolveApproval(requestID: Int, decision: String) throws {}
+    func listSessions() -> [RelaySessionInfoPayload] { [] }
+    func stopSession() throws {}
 }
 
 @MainActor

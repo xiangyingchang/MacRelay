@@ -13,7 +13,7 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var heartbeatOnline = false
     @Published public var pairingCode: String = ""
     @Published public var isConnecting = false
-    /// UI message list — driven ONLY by Mac snapshot, never optimistic.
+    /// UI message list built from Mac snapshots plus local sends awaiting acknowledgement.
     @Published public var conversationMessages: [String] = []
     @Published public var draftText = ""
     @Published public var isSending = false
@@ -98,7 +98,7 @@ public final class RelayClientViewModel: ObservableObject {
         do {
             claimed = try await client.claimPairing(claim: uri.claim)
         } catch {
-            stateMachine.pairFailed()
+            _ = stateMachine.pairFailed()
             throw error
         }
         pairingCode = claimed.claim
@@ -127,6 +127,10 @@ public final class RelayClientViewModel: ObservableObject {
     }
 
     public func refresh() async throws {
+        try await refreshSnapshot(includeReplay: true)
+    }
+
+    private func refreshSnapshot(includeReplay: Bool) async throws {
         guard stateMachine.state == .connecting || stateMachine.state == .connected else { return }
         isConnecting = true
         do {
@@ -135,9 +139,11 @@ public final class RelayClientViewModel: ObservableObject {
             syncToolbarFromSnapshot()
             heartbeatOnline = true
             updateConversation()
-            let replay = try await wsClient.getReplay(afterSeq: snap.payload.lastEventSeq > 5 ? snap.payload.lastEventSeq - 5 : 0, maxEvents: 20)
-            if replay.payload.kind == "events" { replayEvents = replay.payload.events }
-            _ = try? await wsClient.heartbeat()
+            if includeReplay {
+                let replay = try await wsClient.getReplay(afterSeq: snap.payload.lastEventSeq > 5 ? snap.payload.lastEventSeq - 5 : 0, maxEvents: 20)
+                if replay.payload.kind == "events" { replayEvents = replay.payload.events }
+                _ = try? await wsClient.heartbeat()
+            }
             updateConversation()
             lastErrorCode = nil
         } catch {
@@ -229,7 +235,7 @@ public final class RelayClientViewModel: ObservableObject {
         _ = stateMachine.transition(to: .unpaired)
     }
 
-    /// Send a turn — NO optimistic update. UI renders only after Mac confirms.
+    /// Send a turn. The local user bubble is shown while waiting for Mac acknowledgement.
     public func sendTurn(text: String) async throws {
         guard stateMachine.state == .connected else {
             lastErrorCode = RelayErrorCode.generalError.code
@@ -253,12 +259,14 @@ public final class RelayClientViewModel: ObservableObject {
         )
         // Check for error — Mac may reject if previous turn is still processing
         guard response.type != RelayEventType.error.rawValue else {
+            removePendingUserMessage(text)
             updateConversation()
             lastErrorCode = response.payload["code"] ?? RelayErrorCode.generalError.code
             return
         }
-        // Refresh state from Mac (Single Source of Truth)
-        try await refresh()
+        // Refresh state from Mac and keep polling until this turn completes.
+        try await refreshSnapshot(includeReplay: false)
+        await pollTurnUntilRenderedAndCompleted(userMessage: text)
         updateConversation()
         lastErrorCode = nil
     }
@@ -281,6 +289,38 @@ public final class RelayClientViewModel: ObservableObject {
         } catch {
             lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
         }
+    }
+
+    /// Fetch session list from Mac.
+    public func fetchSessions() async -> [RelaySessionInfoPayload] {
+        guard stateMachine.state == .connected else { return [] }
+        do {
+            let response: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+                type: .sessionList,
+                payload: [:] as [String: String]
+            )
+            return []
+        } catch {
+            lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
+            return []
+        }
+    }
+
+    /// Create a new session on Mac.
+    public func startNewSession(initialPrompt: String? = nil) async throws {
+        guard stateMachine.state == .connected else { throw RelayClientError.wsError("not connected") }
+        let payload = RelaySessionStartCommandPayload(
+            cwd: sessionSnapshot?.cwd ?? FileManager.default.currentDirectoryPath,
+            model: selectedModel.isEmpty ? nil : selectedModel,
+            effort: selectedEffort,
+            planMode: planModeEnabled,
+            permissionMode: permissionMode,
+            initialPrompt: initialPrompt
+        )
+        let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+            type: .sessionStart,
+            payload: payload
+        )
     }
 
     /// Build conversation message list from the latest snapshot — Single Source of Truth.
@@ -323,20 +363,23 @@ public final class RelayClientViewModel: ObservableObject {
         for pending in pendingLocalUserMessages {
             lines.append("[user] \(pending)")
         }
-        // Add replay events
-        for event in replayEvents {
-            switch event.type {
-            case "turn.delta":
-                if let data = try? JSONDecoder().decode(RelayEnvelope<[String: String]>.self, from: event.payloadData) {
-                    lines.append("[delta] \(data.payload["delta"] ?? "...")")
-                }
-            case "turn.completed":
-                lines.append("[event] turn completed")
-            default:
-                break
-            }
-        }
         conversationMessages = lines
+    }
+
+    private func pollTurnUntilRenderedAndCompleted(userMessage: String) async {
+        let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let deadline = Date().addingTimeInterval(120)
+        while Date() < deadline && !Task.isCancelled {
+            if let turn = sessionSnapshot?.turns.last(where: { $0.userMessage == trimmed }),
+               turn.isCompleted {
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await refreshSnapshot(includeReplay: false)
+        }
     }
 
     private func appendPendingUserMessage(_ text: String) {
@@ -344,6 +387,14 @@ public final class RelayClientViewModel: ObservableObject {
         guard !trimmed.isEmpty else { return }
         pendingLocalUserMessages.append(trimmed)
         updateConversation()
+    }
+
+    private func removePendingUserMessage(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let index = pendingLocalUserMessages.firstIndex(of: trimmed) {
+            pendingLocalUserMessages.remove(at: index)
+        }
     }
 
     public func claimFromURL(_ url: URL) async throws {

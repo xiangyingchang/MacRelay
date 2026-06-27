@@ -106,6 +106,22 @@ final class SessionStateReducerReduceTests: XCTestCase {
         XCTAssertEqual(state.status, .active)
     }
 
+    func test_turnStarted_preservesUserMessageForRelayRendering() {
+        var state = SessionSnapshot()
+        let params: [String: Any] = [
+            "turn": ["id": "turn_user_msg"],
+            "input": "hello from iOS"
+        ]
+
+        reducer.reduce(&state, action: .turnStarted(params: params))
+        reducer.reduce(&state, action: .assistantDelta("hello from Mac"))
+
+        let relaySession = RelaySessionSnapshotPayload(snapshot: state)
+        XCTAssertEqual(relaySession.turns.count, 1)
+        XCTAssertEqual(relaySession.turns.first?.userMessage, "hello from iOS")
+        XCTAssertEqual(relaySession.turns.first?.assistantText, "hello from Mac")
+    }
+
     // MARK: - assistantDelta
 
     func test_assistantDelta_appendsText() {

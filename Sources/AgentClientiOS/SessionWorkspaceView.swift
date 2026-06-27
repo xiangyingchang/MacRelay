@@ -88,6 +88,18 @@ struct SessionToolbar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
+                // New Session button
+                Button {
+                    Task { try? await viewModel.startNewSession() }
+                } label: {
+                    Label("New", systemImage: "plus.bubble")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Divider().frame(height: 20)
+
                 // Model — driven by snapshot availableModels
                 if !viewModel.availableModels.isEmpty {
                     Picker("Model", selection: $viewModel.selectedModel) {

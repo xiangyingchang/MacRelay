@@ -299,6 +299,26 @@ public struct RelaySessionStartCommandPayload: Codable, Equatable {
     }
 }
 
+/// Session info returned by session.list.
+public struct RelaySessionInfoPayload: Codable, Equatable, Identifiable {
+    public var id: String { sessionID }
+    public let sessionID: String
+    public let cwd: String?
+    public let model: String?
+    public let effort: String?
+    public let status: String?
+    public let createdAt: Date?
+
+    public init(sessionID: String, cwd: String? = nil, model: String? = nil, effort: String? = nil, status: String? = nil, createdAt: Date? = nil) {
+        self.sessionID = sessionID
+        self.cwd = cwd
+        self.model = model
+        self.effort = effort
+        self.status = status
+        self.createdAt = createdAt
+    }
+}
+
 public struct RelayTurnStartCommandPayload: Codable, Equatable {
     public var sessionID: String
     public var input: String

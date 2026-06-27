@@ -43,6 +43,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     @Published private(set) var isAppServerRunning = false
     @Published private(set) var isInitialized = false
     @Published private(set) var isInitializing = false
+    @Published private(set) var sessions: [RelaySessionInfoPayload] = []
 
     var onTurnIDChanged: ((String?) -> Void)?
     var onEventReceived: ((CodexAppServerEvent) -> Void)?
@@ -121,7 +122,6 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
 
     /// Enqueues a user draft. If the app-server isn't initialized yet,
     /// starts the full chain: startAppServer → initialize → model/list → thread/start → turn/start.
-    @discardableResult
     func enqueueDraft(
         cwd: String,
         text: String,
@@ -351,6 +351,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
             if let threadID = params?["id"] as? String
                 ?? (params?["thread"] as? [String: Any])?["id"] as? String {
                 currentThreadID = threadID
+                recordSession(threadID: threadID, params: params)
                 // Auto-fire pending turn if we have a stashed draft
                 firePendingTurn(threadID: threadID)
             }
@@ -507,7 +508,6 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     /// After thread/started, fire the stashed draft → turn/start.
     private func firePendingTurn(threadID: String) {
         guard let draft = pendingDraft else { return }
-        pendingDraft = nil // consume the draft
         do {
             try startTurn(
                 threadID: threadID,
@@ -518,6 +518,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
                 sandboxPolicy: draft.turnSandbox
             )
         } catch {
+            pendingDraft = nil
             statusText = "failed to start turn: \(error)"
         }
     }
@@ -525,15 +526,19 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     /// If thread exists, send turn directly from stashed draft.
     private func startTurnFromDraft() throws {
         guard let draft = pendingDraft, let threadID = currentThreadID else { return }
-        pendingDraft = nil
-        try startTurn(
-            threadID: threadID,
-            text: draft.text,
-            model: draft.model,
-            effort: draft.effort,
-            approvalPolicy: draft.approvalPolicy,
-            sandboxPolicy: draft.turnSandbox
-        )
+        do {
+            try startTurn(
+                threadID: threadID,
+                text: draft.text,
+                model: draft.model,
+                effort: draft.effort,
+                approvalPolicy: draft.approvalPolicy,
+                sandboxPolicy: draft.turnSandbox
+            )
+        } catch {
+            pendingDraft = nil
+            throw error
+        }
     }
 
     // MARK: - Private: formatting
@@ -560,5 +565,36 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
             params: ["models": modelNames]
         )
         onEventReceived?(modelEvent)
+    }
+
+    // MARK: - Session tracking
+
+    private func recordSession(threadID: String, params: [String: Any]?) {
+        let thread = params?["thread"] as? [String: Any] ?? params
+        if !sessions.contains(where: { $0.sessionID == threadID }) {
+            let newSession = RelaySessionInfoPayload(
+                sessionID: threadID,
+                cwd: thread?["cwd"] as? String,
+                model: thread?["model"] as? String,
+                effort: thread?["effort"] as? String,
+                status: "active",
+                createdAt: Date()
+            )
+            sessions.append(newSession)
+        }
+    }
+
+    // MARK: - MacRelayRuntimeBridge
+
+    func listSessions() -> [RelaySessionInfoPayload] {
+        sessions
+    }
+
+    func stopSession() throws {
+        pendingDraft = nil
+        currentThreadID = nil
+        latestTurnID = nil
+        sessions.removeAll()
+        print("[Log] Sessions stopped")
     }
 }

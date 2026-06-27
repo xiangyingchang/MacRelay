@@ -78,6 +78,10 @@ final class FakeRuntimeBridge: MacRelayRuntimeBridge {
     func resolveApproval(requestID: Int, decision: String) throws {
         approvalCalls.append(ApprovalCall(requestID: requestID, decision: decision))
     }
+
+    func listSessions() -> [RelaySessionInfoPayload] { [] }
+
+    func stopSession() throws {}
 }
 
 @MainActor
