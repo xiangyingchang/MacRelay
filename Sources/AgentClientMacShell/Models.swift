@@ -280,6 +280,8 @@ final class MacShellViewModel: ObservableObject {
     /// Start a fresh session: clear current thread, create a new one,
     /// and clear the conversation view.
     func startNewSession() {
+        // Save current session's messages before clearing
+        sessionMessages[activeRunID] = messages
         // Immediate visual feedback — clear conversation before the async chain runs
         messages.removeAll()
         streamingMessageID = nil
