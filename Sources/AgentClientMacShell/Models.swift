@@ -263,14 +263,10 @@ final class MacShellViewModel: ObservableObject {
             }
         }
 
-        runtime.onThreadStarted = { [weak self] in
+        runtime.onThreadStarted = { [weak self] threadID in
             Task { @MainActor in
                 guard let self else { return }
-                // New thread = new session → clear old conversation
-                self.messages.removeAll()
-                self.streamingMessageID = nil
-                self.streamingTurnID = nil
-                self.lastAssistantTextLength = 0
+                self.bindCurrentMessages(toSession: threadID)
             }
         }
     }
@@ -280,8 +276,7 @@ final class MacShellViewModel: ObservableObject {
     /// Start a fresh session: clear current thread, create a new one,
     /// and clear the conversation view.
     func startNewSession() {
-        // Save current session's messages before clearing
-        sessionMessages[activeRunID] = messages
+        saveActiveSessionMessages()
         // Immediate visual feedback — clear conversation before the async chain runs
         messages.removeAll()
         streamingMessageID = nil
@@ -310,18 +305,15 @@ final class MacShellViewModel: ObservableObject {
     /// Switch to an existing session: update runtime, clear conversation,
     /// and show a confirmation message.
     func selectSession(id: String) {
+        saveActiveSessionMessages()
         do {
             try runtime.selectSession(sessionID: id)
         } catch {
             messages.append(ConversationMessage(role: "Tool", text: "Failed to select session: \(error)"))
             return
         }
-        // Save current session's messages before switching
-        sessionMessages[activeRunID] = messages
         activeRunID = id
-        // Restore messages for the target session (if any)
         messages = sessionMessages[id] ?? []
-        messages.append(ConversationMessage(role: "System", text: "Switched to session \(id.prefix(8))"))
         streamingMessageID = nil
         streamingTurnID = nil
         lastAssistantTextLength = 0
@@ -584,6 +576,7 @@ final class MacShellViewModel: ObservableObject {
         streamingTurnID = nil
         lastAssistantTextLength = 0
         messages.append(streamingMsg)
+        saveActiveSessionMessages()
 
         do {
             // enqueueDraft handles the full async chain:
@@ -604,6 +597,7 @@ final class MacShellViewModel: ObservableObject {
             // Replace streaming placeholder with error
             if let idx = messages.lastIndex(where: { $0.id == streamingMessageID }) {
                 messages[idx] = ConversationMessage(role: "Tool", text: "Failed to start turn: \(error)")
+                saveActiveSessionMessages()
             }
             streamingMessageID = nil
             streamingTurnID = nil
@@ -675,6 +669,7 @@ final class MacShellViewModel: ObservableObject {
             streamingTurnID = nil
             lastAssistantTextLength = 0
             messages.append(streamingMsg)
+            saveActiveSessionMessages()
         }
 
         do {
@@ -710,6 +705,20 @@ final class MacShellViewModel: ObservableObject {
         var nextMessages = messages
         nextMessages[index] = message
         messages = nextMessages
+        saveActiveSessionMessages()
+    }
+
+    private func saveActiveSessionMessages() {
+        guard runtime.sessions.contains(where: { $0.sessionID == activeRunID }) else { return }
+        sessionMessages[activeRunID] = messages
+    }
+
+    private func bindCurrentMessages(toSession threadID: String) {
+        if activeRunID != threadID {
+            saveActiveSessionMessages()
+            activeRunID = threadID
+        }
+        sessionMessages[threadID] = messages
     }
 
     private func record(_ type: RelayCommandType, _ detail: String) {

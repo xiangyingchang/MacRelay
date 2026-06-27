@@ -58,7 +58,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     /// Fires when a new thread starts (thread/started notification).
     /// The MacShellViewModel uses this to clear the conversation view
     /// so a new session doesn't inherit old messages.
-    var onThreadStarted: (() -> Void)?
+    var onThreadStarted: ((String) -> Void)?
     var isProcessingTurn: Bool { pendingDraft != nil }
 
     // MARK: - Private state
@@ -339,7 +339,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
                 currentThreadID = threadID
                 recordSession(threadID: threadID, params: params)
                 firePendingTurn(threadID: threadID)
-                onThreadStarted?()
+                onThreadStarted?(threadID)
             }
         }
 
@@ -640,11 +640,13 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         guard sessions.contains(where: { $0.sessionID == sessionID }) else {
             throw MacRelayBridgeError.sessionNotFound("Session \(sessionID) not found")
         }
-        // Just mark which session was selected — the next user turn will
-        // run in this session's context via selectedSessionCWD.
+        // Select the thread that should receive the next turn.
         // Do NOT restart the app-server or create a new thread here,
         // otherwise each selectSession would spawn a spurious new session.
         selectedSessionID = sessionID
+        currentThreadID = sessionID
+        latestTurnID = nil
+        clearActiveTurn()
         statusText = "session.select sessionID=\(sessionID)"
     }
 }
