@@ -1,7 +1,7 @@
 import SwiftUI
 import AgentClientCore
 
-/// Full-session workspace with scrollable conversation stream and bottom composer.
+/// Full-session workspace with toolbar, conversation stream, and bottom composer.
 public struct SessionWorkspaceView: View {
     @ObservedObject var viewModel: RelayClientViewModel
 
@@ -29,6 +29,11 @@ public struct SessionWorkspaceView: View {
 
             Divider()
 
+            // Session Toolbar — config pickers
+            SessionToolbar(viewModel: viewModel)
+
+            Divider()
+
             // Conversation stream
             ScrollViewReader { proxy in
                 ScrollView {
@@ -49,7 +54,7 @@ public struct SessionWorkspaceView: View {
                 }
                 .onChange(of: viewModel.conversationMessages.count) { _, _ in
                     withAnimation {
-                        proxy.scrollTo(viewModel.conversationMessages.count - 1, anchor: .bottom)
+                        proxy.scrollTo(max(0, viewModel.conversationMessages.count - 1), anchor: .bottom)
                     }
                 }
             }
@@ -65,11 +70,81 @@ public struct SessionWorkspaceView: View {
                     let text = viewModel.draftText
                     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                     viewModel.draftText = ""
-                    Task {
-                        try? await viewModel.sendTurn(text: text)
-                    }
+                    Task { try? await viewModel.sendTurn(text: text) }
                 }
             )
+        }
+    }
+}
+
+// MARK: - Session Toolbar
+
+struct SessionToolbar: View {
+    @ObservedObject var viewModel: RelayClientViewModel
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                // Model
+                Picker("Model", selection: $viewModel.selectedModel) {
+                    ForEach(viewModel.modelOptions, id: \.self) { m in
+                        Text(m).tag(m).font(.caption)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: viewModel.selectedModel) { _, _ in
+                    Task { await viewModel.sendSettingsUpdate() }
+                }
+
+                Divider().frame(height: 20)
+
+                // Effort
+                Picker("Effort", selection: $viewModel.selectedEffort) {
+                    ForEach(viewModel.efforts, id: \.self) { e in
+                        Text(e.capitalized).tag(e).font(.caption)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: viewModel.selectedEffort) { _, _ in
+                    Task { await viewModel.sendSettingsUpdate() }
+                }
+
+                Divider().frame(height: 20)
+
+                // Plan mode toggle
+                Toggle(isOn: $viewModel.planModeEnabled) {
+                    Label("Plan", systemImage: "checklist")
+                        .font(.caption)
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .onChange(of: viewModel.planModeEnabled) { _, _ in
+                    Task { await viewModel.sendSettingsUpdate() }
+                }
+
+                Divider().frame(height: 20)
+
+                // Permission mode
+                Picker("Access", selection: $viewModel.permissionMode) {
+                    ForEach(viewModel.permissions, id: \.self) { p in
+                        Text(shortPermission(p)).tag(p).font(.caption)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: viewModel.permissionMode) { _, _ in
+                    Task { await viewModel.sendSettingsUpdate() }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+    }
+
+    private func shortPermission(_ p: String) -> String {
+        switch p {
+        case "Read Only": return "Read"
+        case "Full Access": return "Full"
+        default: return p
         }
     }
 }
@@ -132,7 +207,6 @@ struct MessageBubble: View {
     }
 
     private func content(for msg: String) -> String {
-        // Strip prefix like "[user] " or "[assistant] "
         if let range = msg.range(of: "] ") {
             return String(msg[range.upperBound...])
         }

@@ -275,11 +275,18 @@ public final class MacRelayWebSocketServer {
                 let connection = ConnectionSnapshotPayload(isPaired: true, isOnline: true, lastSeenSeq: relayService.newestSeq)
                 return try encode(RelayEnvelope(type: RelayEventType.heartbeat.rawValue, correlationID: id, payload: connection))
 
-            case RelayCommandType.turnStart.rawValue, RelayCommandType.sessionStart.rawValue:
+            case RelayCommandType.turnStart.rawValue, RelayCommandType.sessionStart.rawValue, RelayCommandType.settingsUpdate.rawValue:
                 guard let commandDispatcher, let payloadData else {
                     return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "remote commands not supported on this server", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
                 }
-                let cmdType = RelayCommandType(rawValue: type) ?? .turnStart
+                let cmdType: RelayCommandType
+                if type == RelayCommandType.settingsUpdate.rawValue {
+                    cmdType = .settingsUpdate
+                } else if type == RelayCommandType.sessionStart.rawValue {
+                    cmdType = .sessionStart
+                } else {
+                    cmdType = .turnStart
+                }
                 let dispatchedText: String
                 do {
                     let result = try MainActor.assumeIsolated { try commandDispatcher.dispatch(commandType: cmdType, payloadData: payloadData) }

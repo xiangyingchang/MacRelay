@@ -15,6 +15,13 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var conversationMessages: [String] = []
     @Published public var draftText = ""
     @Published public var isSending = false
+    @Published public var selectedModel = "claude-sonnet-4"
+    @Published public var selectedEffort = "medium"
+    @Published public var planModeEnabled = false
+    @Published public var permissionMode = "Read Only"
+    public let modelOptions = ["claude-sonnet-4", "claude-4", "deepseek-v4", "gpt-5"]
+    public let efforts = ["low", "medium", "high", "xhigh"]
+    public let permissions = ["Read Only", "Default", "Full Access"]
 
     public let stateMachine = MobileConnectionStateMachine()
     private let httpClient: RelayHTTPClient?
@@ -199,10 +206,10 @@ public final class RelayClientViewModel: ObservableObject {
         let payload = RelayTurnStartCommandPayload(
             sessionID: sessionSnapshot?.threadID ?? "",
             input: text,
-            model: sessionSnapshot?.model ?? "claude-sonnet-4",
-            effort: "medium",
-            planMode: false,
-            permissionMode: "Read Only"
+            model: selectedModel,
+            effort: selectedEffort,
+            planMode: planModeEnabled,
+            permissionMode: permissionMode
         )
         let response: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
             type: .turnStart,
@@ -212,6 +219,26 @@ public final class RelayClientViewModel: ObservableObject {
         try await refresh()
         updateConversation()
         lastErrorCode = nil
+    }
+
+    /// Send current toolbar settings to Mac for hot-switching.
+    public func sendSettingsUpdate() async {
+        guard stateMachine.state == .connected else { return }
+        let payload = RelaySettingsUpdateCommandPayload(
+            sessionID: sessionSnapshot?.threadID ?? "",
+            model: selectedModel,
+            effort: selectedEffort,
+            planMode: planModeEnabled,
+            permissionMode: permissionMode
+        )
+        do {
+            let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+                type: .settingsUpdate,
+                payload: payload
+            )
+        } catch {
+            lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
+        }
     }
 
     /// Build conversation message list from the latest snapshot.
