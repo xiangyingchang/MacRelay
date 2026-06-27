@@ -45,8 +45,6 @@ struct ChatWorkspace: View {
                     }
                 }
             }
-            // Runtime status bar
-            RuntimeStatusStrip(viewModel: viewModel)
             Composer(viewModel: viewModel)
         }
         .background(Theme.canvas)
@@ -190,39 +188,6 @@ struct MessageRow: View {
     }
 }
 
-struct RuntimeStatusStrip: View {
-    @ObservedObject var viewModel: MacShellViewModel
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(viewModel.runtime.isAppServerRunning ? Theme.success : Theme.textMuted)
-                .frame(width: 6, height: 6)
-            Text(viewModel.sessionStatusText)
-                .fontWeight(.semibold)
-            Text("·")
-                .foregroundStyle(Theme.textMuted)
-            if let error = viewModel.runtime.snapshot.lastError {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Theme.warning)
-                Text(error.code.map { "[\($0)]" } ?? "error")
-                    .foregroundStyle(Theme.warning)
-            } else {
-                Text(viewModel.runtime.statusText)
-            }
-            Spacer()
-        }
-        .font(.system(size: 10, design: .monospaced))
-        .foregroundStyle(Theme.textSecondary)
-        .lineLimit(1)
-        .padding(.horizontal, 22)
-        .padding(.vertical, 7)
-        .background(Theme.bgPrimary)
-        .overlay(Rule(horizontal: true), alignment: .top)
-    }
-}
-
 struct CommandApprovalCard: View {
     let approval: RelayApprovalPayload
     let approve: () -> Void
@@ -278,69 +243,98 @@ struct Composer: View {
     @ObservedObject var viewModel: MacShellViewModel
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 12) {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $viewModel.draftText)
-                    .font(.system(size: 14))
+                    .font(.system(size: 15))
                     .foregroundStyle(Theme.textPrimary)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
-                    .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 136, alignment: .topLeading)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 9)
-                    .padding(.bottom, 8)
+                    .frame(maxWidth: .infinity, minHeight: 112, maxHeight: 160, alignment: .topLeading)
                 if viewModel.draftText.isEmpty {
-                    Text("Ask Codex to change, inspect, build, or explain")
-                        .font(.system(size: 14))
+                    Text("提出后续修改要求")
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.textMuted)
-                        .padding(.horizontal, 17)
-                        .padding(.top, 18)
+                        .padding(.top, 8)
                         .allowsHitTesting(false)
                 }
             }
 
-            HStack(spacing: 7) {
-                IconOnlyButton(systemName: "paperclip")
-                IconOnlyButton(systemName: "mic")
-                ToolbarDivider()
-                HStack(spacing: 7) {
-                    SessionMenu(label: "Model", title: viewModel.selectedModel, width: 144, items: viewModel.modelOptions, selection: $viewModel.selectedModel, onChange: viewModel.recordSettingsUpdate)
-                    SessionMenu(label: "Effort", title: viewModel.selectedEffort.capitalized, width: 116, items: viewModel.efforts, selection: $viewModel.selectedEffort, onChange: viewModel.recordSettingsUpdate)
-                    PlanToggleButton(isOn: $viewModel.planModeEnabled, onChange: viewModel.recordSettingsUpdate)
-                    SessionMenu(label: "Access", title: viewModel.selectedPermissionMode, width: 152, items: viewModel.permissions, selection: $viewModel.selectedPermissionMode, onChange: viewModel.recordSettingsUpdate)
-                }
-                .padding(4)
-                .background(Theme.canvas)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Theme.borderBright, lineWidth: 1)
+            HStack(spacing: 12) {
+                ComposerIconButton(systemName: "plus")
+                SessionMenu(
+                    label: "Access",
+                    title: viewModel.selectedPermissionMode,
+                    width: 136,
+                    items: viewModel.permissions,
+                    selection: $viewModel.selectedPermissionMode,
+                    systemName: "shield",
+                    tint: Theme.warning,
+                    surface: Color.clear,
+                    stroke: Color.clear,
+                    onChange: viewModel.recordSettingsUpdate
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                IconOnlyButton(systemName: "folder")
                 Spacer()
-                Button(action: viewModel.sendDraft) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 16, weight: .bold))
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(Theme.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                SessionMenu(label: "Model", title: viewModel.selectedModel, width: 176, items: viewModel.modelOptions, selection: $viewModel.selectedModel, surface: Color.clear, stroke: Color.clear, onChange: viewModel.recordSettingsUpdate)
+                SessionMenu(label: "Effort", title: viewModel.selectedEffort.capitalized, width: 108, items: viewModel.efforts, selection: $viewModel.selectedEffort, systemName: "brain", surface: Color.clear, stroke: Color.clear, onChange: viewModel.recordSettingsUpdate)
+                PlanToggleButton(isOn: $viewModel.planModeEnabled, onChange: viewModel.recordSettingsUpdate)
+                ComposerSendButton(action: viewModel.sendDraft)
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 10)
+            .frame(height: 40)
         }
+        .padding(.horizontal, 26)
+        .padding(.top, 22)
+        .padding(.bottom, 18)
+        .frame(maxWidth: 860)
         .background(Theme.bgSecondary)
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Theme.borderBright, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Theme.borderBright.opacity(0.78), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal, 20)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .padding(.horizontal, 36)
         .padding(.top, 12)
         .padding(.bottom, 18)
+        .frame(maxWidth: .infinity)
         .background(Theme.canvas)
+    }
+}
+
+struct ComposerIconButton: View {
+    let systemName: String
+    let action: () -> Void
+
+    init(systemName: String, action: @escaping () -> Void = {}) {
+        self.systemName = systemName
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 28, height: 32)
+        }
+        .buttonStyle(.plain)
+        .help(systemName)
+    }
+}
+
+struct ComposerSendButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Theme.canvas)
+                .frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain)
+        .background(Theme.textSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .help("Send")
     }
 }
 
@@ -354,23 +348,19 @@ struct PlanToggleButton: View {
             onChange()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "checklist")
-                    .font(.system(size: 11, weight: .bold))
+                Image(systemName: "switch.2")
+                    .font(.system(size: 13, weight: .semibold))
                 Text(isOn ? "Plan" : "Act")
                     .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
             }
-            .font(.system(size: 12, weight: .bold))
+            .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(isOn ? Theme.accentText : Theme.textSecondary)
-            .padding(.horizontal, 10)
-            .frame(width: 72, height: 30)
-            .background(isOn ? Theme.accentSubtle : Theme.elevated)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(isOn ? Theme.accent.opacity(0.45) : Theme.borderBright, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .frame(width: 86, height: 34)
         }
         .buttonStyle(.plain)
+        .help(isOn ? "Plan mode" : "Act mode")
     }
 }
 
@@ -380,7 +370,35 @@ struct SessionMenu: View {
     let width: CGFloat
     let items: [String]
     @Binding var selection: String
+    let systemName: String?
+    let tint: Color
+    let surface: Color
+    let stroke: Color
     let onChange: () -> Void
+
+    init(
+        label: String,
+        title: String,
+        width: CGFloat,
+        items: [String],
+        selection: Binding<String>,
+        systemName: String? = nil,
+        tint: Color = Theme.textSecondary,
+        surface: Color = Theme.elevated,
+        stroke: Color = Theme.borderBright,
+        onChange: @escaping () -> Void
+    ) {
+        self.label = label
+        self.title = title
+        self.width = width
+        self.items = items
+        self._selection = selection
+        self.systemName = systemName
+        self.tint = tint
+        self.surface = surface
+        self.stroke = stroke
+        self.onChange = onChange
+    }
 
     var body: some View {
         Menu {
@@ -392,26 +410,36 @@ struct SessionMenu: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Text(label)
-                    .foregroundStyle(Theme.textMuted)
-                Text(title)
-                    .foregroundStyle(Theme.textPrimary)
+                if let systemName {
+                    Image(systemName: systemName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+                Text(displayTitle)
+                    .foregroundStyle(tint)
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Theme.textMuted)
+                    .foregroundStyle(tint.opacity(0.72))
             }
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 14, weight: .semibold))
             .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(Theme.elevated)
+            .frame(width: width, height: 34)
+            .background(surface)
             .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(Theme.borderBright, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 9)
+                    .stroke(stroke, lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .clipShape(RoundedRectangle(cornerRadius: 9))
         }
         .menuStyle(.borderlessButton)
-        .frame(width: width)
+        .help("\(label): \(displayTitle)")
+    }
+
+    private var displayTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? label : title
     }
 }
