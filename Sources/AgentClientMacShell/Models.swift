@@ -37,6 +37,13 @@ final class MacShellViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        runtime.$modelNames
+            .receive(on: RunLoop.main)
+            .sink { [weak self] modelNames in
+                self?.reconcileSelectedModel(with: modelNames)
+            }
+            .store(in: &cancellables)
+
         runtime.onEventReceived = { [weak self] event in
             Task { @MainActor in
                 self?.ingestRelayEvent(event)
@@ -61,6 +68,7 @@ final class MacShellViewModel: ObservableObject {
         lastAssistantTextLength = 0
         selectedModel = ""
         runtime.refreshDetection()
+        reconcileSelectedModel(with: runtime.modelNames)
         setupRuntimeSubscriptions()
     }
     let relayService = MacRelayService(
@@ -148,6 +156,10 @@ final class MacShellViewModel: ObservableObject {
 
     let fallbackModels: [String] = []
     let efforts = ["low", "medium", "high", "xhigh"]
+    /// Assistant display name based on the active provider.
+    var assistantName: String {
+        UserDefaults.standard.string(forKey: "agentProvider") == "Claude Code" ? "Claude" : "Codex"
+    }
     let permissions = ["Read Only", "Default", "Full Access"]
     private var cancellables = Set<AnyCancellable>()
 
@@ -299,6 +311,8 @@ final class MacShellViewModel: ObservableObject {
         }
 
         setupRuntimeSubscriptions()
+        runtime.refreshDetection()
+        reconcileSelectedModel(with: runtime.modelNames)
     }
 
     // MARK: - Actions
@@ -314,18 +328,15 @@ final class MacShellViewModel: ObservableObject {
         lastAssistantTextLength = 0
         isCreatingNewSession = true
         do {
-            // Clear current thread so enqueueDraft creates a fresh one
-            // (same logic as the iOS session.start path).
+            // Just initialize the app-server and fetch models — don't enqueue a draft.
+            // The user's first real message will create the thread + turn.
             runtime.clearCurrentThread()
-            try runtime.enqueueDraft(
-                cwd: projectCWD,
-                text: "",
-                model: selectedModel,
-                effort: selectedEffort,
-                threadSandbox: threadSandboxValue,
-                turnSandbox: turnSandboxValue,
-                approvalPolicy: approvalPolicyValue
-            )
+            if !runtime.isAppServerRunning {
+                try runtime.startAppServer(cwd: projectCWD)
+            }
+            if !runtime.isInitialized, !runtime.isInitializing {
+                try runtime.initialize()
+            }
             record(.sessionStart, "session.start cwd=\(projectCWD)")
         } catch {
             isCreatingNewSession = false
@@ -603,7 +614,7 @@ final class MacShellViewModel: ObservableObject {
         messages.append(ConversationMessage(role: "User", text: text))
 
         // Add a streaming placeholder that will be updated by delta events
-        let streamingMsg = ConversationMessage(role: "Codex", text: "…")
+        let streamingMsg = ConversationMessage(role: assistantName, text: "…")
         streamingMessageID = streamingMsg.id
         streamingTurnID = nil
         lastAssistantTextLength = 0
@@ -657,7 +668,7 @@ final class MacShellViewModel: ObservableObject {
                     let displayText = currentText.isEmpty ? "…" : currentText
                     replaceMessage(at: idx, with: ConversationMessage(
                         id: streamID,
-                        role: "Codex",
+                        role: assistantName,
                         text: displayText
                     ))
                 }
@@ -688,6 +699,14 @@ final class MacShellViewModel: ObservableObject {
         streamingTurnID = turnID
     }
 
+    private func reconcileSelectedModel(with modelNames: [String]) {
+        guard let first = modelNames.first else { return }
+        if selectedModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !modelNames.contains(selectedModel) {
+            selectedModel = first
+            UserDefaults.standard.set(first, forKey: modelConfigKey)
+        }
+    }
+
     private func ingestRelayEvent(_ event: CodexAppServerEvent) {
         // Remote turn/started — inject user message into Mac UI when the turn
         // came from an iOS client (streamingMessageID is nil because sendDraftReal
@@ -696,7 +715,7 @@ final class MacShellViewModel: ObservableObject {
            let input = params?["input"] as? String, !input.isEmpty,
            streamingMessageID == nil {
             messages.append(ConversationMessage(role: "User", text: input))
-            let streamingMsg = ConversationMessage(role: "Codex", text: "…")
+            let streamingMsg = ConversationMessage(role: assistantName, text: "…")
             streamingMessageID = streamingMsg.id
             streamingTurnID = nil
             lastAssistantTextLength = 0

@@ -76,12 +76,15 @@ struct MessageRow: View {
                 Text(message.role)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(message.role == "User" ? Theme.accent : Theme.muted)
-                Text(message.text)
-                    .font(.system(size: 14))
-                    .lineSpacing(3)
-                    .foregroundStyle(Theme.fg)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if message.role == "User" {
+                    Text(message.text)
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.fg)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    MarkdownText(message.text)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -116,6 +119,35 @@ struct MessageAvatar: View {
             role == "User" ? nil :
                 Circle().stroke(Theme.border, lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Markdown Text
+
+struct MarkdownText: View {
+    let _text: String
+
+    init(_ text: String) { self._text = text }
+
+    var body: some View {
+        if let attributed = try? AttributedString(markdown: _text, options: .init(
+            allowsExtendedAttributes: false,
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )) {
+            Text(attributed)
+                .font(.system(size: 14))
+                .lineSpacing(3)
+                .foregroundStyle(Theme.fg)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(_text)
+                .font(.system(size: 14))
+                .lineSpacing(3)
+                .foregroundStyle(Theme.fg)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -191,26 +223,30 @@ struct Composer: View {
     var body: some View {
         VStack(spacing: 0) {
             // Text editor
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $viewModel.draftText)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.fg)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 9)
-                    .frame(height: editorHeight)
-
-                if viewModel.draftText.isEmpty {
-                    Text("提出后续修改要求")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Theme.muted.opacity(0.7))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 11)
-                        .allowsHitTesting(false)
+            TextEditor(text: $viewModel.draftText)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.fg)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .padding(.horizontal, 12)
+                .padding(.top, 9)
+                .frame(height: editorHeight)
+                .overlay(alignment: .topLeading) {
+                    if viewModel.draftText.isEmpty {
+                        Text("提出后续修改要求")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.muted.opacity(0.7))
+                            .padding(.horizontal, 16)
+                            .padding(.top, 11)
+                            .allowsHitTesting(false)
+                    }
                 }
-            }
-            .frame(height: editorHeight)
+                .onChange(of: viewModel.draftText) { _, newValue in
+                    if newValue.hasSuffix("\n") {
+                        viewModel.draftText = String(newValue.dropLast())
+                        viewModel.sendDraft()
+                    }
+                }
 
             // Resize handle (separate so it doesn't interfere with TextEditor)
             ResizeHandleView(

@@ -61,19 +61,11 @@ final class ClaudeCodeRuntime: AgentRuntime {
             statusText = "Claude Code CLI not found"
             return
         }
-        statusText = "Fetching models..."
-        // Start a lightweight init → model/list cycle to discover real models.
-        // The app-server stays running so the next session doesn't need to re-init.
-        do {
-            if !isAppServerRunning {
-                try startAppServer(cwd: FileManager.default.currentDirectoryPath)
-            }
-            if !isInitialized {
-                try initialize()
-            }
-        } catch {
-            statusText = "model fetch failed: \(error)"
-        }
+        statusText = "Claude Code ready"
+        // Read models from Claude Code settings instead of querying model/list,
+        // because claude-app-server (npm) returns hardcoded models that don't
+        // reflect the user's actual provider configuration (e.g. DeepSeek).
+        modelNames = ClaudeCodeSettingsReader.readModelNames()
     }
 
     override func startAppServer(cwd: String) throws {
@@ -176,7 +168,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
             try startAppServer(cwd: cwd)
         }
         if !isInitialized {
-            if !isInitializing { try initialize() }
+            if !isInitializing { _ = try initialize() }
             statusText = "Initializing → will auto-send..."
         } else if currentThreadID == nil {
             try startThread(draft: pendingDraft!)
@@ -195,12 +187,10 @@ final class ClaudeCodeRuntime: AgentRuntime {
         model: String?, effort: String?, approvalPolicy: String?,
         sandboxPolicy: String?
     ) throws -> Int {
-        let id = nextId; nextId += 1
-        var params: [String: Any] = ["threadId": currentThreadID ?? ""]
-        if let model { params["model"] = model }
-        if let effort { params["effort"] = effort }
-        try sendRequest(id: id, method: "thread/settings/update", params: params)
-        return id
+        // claude-app-server 1.0.x has no thread/settings/update method. Model
+        // is applied on the next turn/start, so settings changes are local.
+        statusText = "Claude settings staged"
+        return 0
     }
 
     override func selectSession(sessionID: String) throws {
@@ -217,8 +207,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         let id = nextId; nextId += 1
         try sendRequest(id: id, method: "thread/start", params: [
             "cwd": draft.cwd,
-            "sandbox": draft.threadSandbox,
-            "approvalPolicy": draft.approvalPolicy,
+            "permission_mode": claudePermissionMode(for: draft),
             "sessionStartSource": "startup"
         ])
         pendingRequests[id] = PendingRequest(kind: .threadStart, createdAt: Date())
@@ -226,12 +215,31 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
     private func startTurnFromDraft() throws {
         guard let draft = pendingDraft, let threadID = currentThreadID else { return }
+        guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            pendingDraft = nil
+            statusText = "thread ready"
+            return
+        }
         let id = nextId; nextId += 1
-        try sendRequest(id: id, method: "turn/start", params: [
-            "threadId": threadID,
-            "input": [["type": "text", "text": draft.text]]
-        ])
+        var params: [String: Any] = [
+            "thread_id": threadID,
+            "content": draft.text
+        ]
+        if let model = draft.model, !model.isEmpty {
+            params["model"] = model
+        }
+        try sendRequest(id: id, method: "turn/start", params: params)
         pendingRequests[id] = PendingRequest(kind: .turnStart, createdAt: Date())
+    }
+
+    private func claudePermissionMode(for draft: DraftParams) -> String {
+        if draft.approvalPolicy == "never" || draft.threadSandbox == "danger-full-access" {
+            return "bypassPermissions"
+        }
+        if draft.threadSandbox == "workspace-write" {
+            return "acceptEdits"
+        }
+        return "default"
     }
 
     private func sendRequest(id: Int, method: String, params: Any) throws {
@@ -270,16 +278,27 @@ final class ClaudeCodeRuntime: AgentRuntime {
             return
         }
 
+        let relayEvent = normalizedEvent(event)
         // Forward event to relay and reduce into snapshot (same as CodexRuntime)
-        onEventReceived?(event)
-        apply(reducer.actions(from: event))
+        onEventReceived?(relayEvent)
+        apply(reducer.actions(from: relayEvent))
     }
 
     private func handleResponse(id: Int, result: [String: Any]?, error: Any?) {
         guard let pending = pendingRequests.removeValue(forKey: id) else { return }
-        guard error == nil else {
-            statusText = "response \(id) error: \(error!)"
+        if let error {
+            statusText = "response \(id) error: \(error)"
             isInitializing = false
+            if pending.kind == .threadStart || pending.kind == .turnStart || pending.kind == .initialize || pending.kind == .modelList {
+                pendingDraft = nil
+            }
+            let errorDict = error as? [String: Any]
+            apply(.error(params: [
+                "error": [
+                    "message": errorDict?["message"] as? String ?? "\(error)",
+                    "code": errorDict?["code"] as? String ?? ""
+                ]
+            ]))
             return
         }
 
@@ -293,8 +312,11 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         case .modelList:
             statusText = "model/list received"
-            let models = result?["models"] as? [[String: Any]] ?? []
-            modelNames = models.compactMap { $0["id"] as? String }
+            // Don't overwrite models from settings with claude-app-server's hardcoded list
+            if modelNames.isEmpty {
+                let models = result?["models"] as? [[String: Any]] ?? []
+                modelNames = models.compactMap { $0["id"] as? String }
+            }
             isInitialized = true
             isInitializing = false
             firePendingDraft()
@@ -307,13 +329,24 @@ final class ClaudeCodeRuntime: AgentRuntime {
                 ?? (result?["thread"] as? [String: Any])?["id"] as? String {
                 if currentThreadID == nil {
                     currentThreadID = threadID
-                    firePendingTurn(threadID: threadID)
+                    recordSession(threadID: threadID, params: result)
+                    if let draft = pendingDraft, !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if let idx = sessions.firstIndex(where: { $0.sessionID == threadID }) {
+                            sessions[idx].title = draft.text
+                        }
+                        firePendingTurn(threadID: threadID)
+                    } else {
+                        pendingDraft = nil
+                        statusText = "thread ready"
+                    }
+                    onThreadStarted?(threadID)
                 }
             }
 
         case .turnStart:
             statusText = "turn active"
-            if let turnID = result?["id"] as? String
+            if let turnID = result?["turn_id"] as? String
+                ?? result?["id"] as? String
                 ?? (result?["turn"] as? [String: Any])?["id"] as? String {
                 latestTurnID = turnID
             }
@@ -328,6 +361,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         case "thread/started":
             statusText = "thread started"
             if let threadID = params?["id"] as? String
+                ?? params?["thread_id"] as? String
                 ?? (params?["thread"] as? [String: Any])?["id"] as? String {
                 currentThreadID = threadID
                 recordSession(threadID: threadID, params: params)
@@ -342,7 +376,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
             }
 
         case "turn/started":
-            let turnID = params?["id"] as? String ?? (params?["turn"] as? [String: Any])?["id"] as? String
+            let turnID = params?["turn_id"] as? String ?? params?["id"] as? String ?? (params?["turn"] as? [String: Any])?["id"] as? String
             if let turnID { latestTurnID = turnID }
             if let threadID = currentThreadID,
                let idx = sessions.firstIndex(where: { $0.sessionID == threadID }),
@@ -355,11 +389,48 @@ final class ClaudeCodeRuntime: AgentRuntime {
             statusText = "turn completed"
             pendingDraft = nil
 
+        case "turn/error":
+            statusText = "turn error"
+            pendingDraft = nil
+
         case "item/agentMessage/delta":
             break // Reducer handles text append
 
+        case "item/progress":
+            break // normalizedEvent maps this to item/agentMessage/delta
+
         default:
             statusText = "notification: \(method)"
+        }
+    }
+
+    private func normalizedEvent(_ event: CodexAppServerEvent) -> CodexAppServerEvent {
+        guard case let .notification(method, params) = event else { return event }
+        switch method {
+        case "turn/started":
+            var next = params ?? [:]
+            let turnID = next["turn_id"] as? String
+                ?? next["id"] as? String
+                ?? (next["turn"] as? [String: Any])?["id"] as? String
+            if let turnID {
+                next["turn"] = ["id": turnID]
+            }
+            if next["input"] == nil, let draft = pendingDraft {
+                next["input"] = draft.text
+            }
+            return .notification(method: method, params: next)
+
+        case "item/progress":
+            let delta = params?["delta"] as? [String: Any]
+            let text = delta?["text"] as? String ?? params?["text"] as? String ?? ""
+            return .notification(method: "item/agentMessage/delta", params: ["delta": text])
+
+        case "turn/error":
+            let message = params?["error"] as? String ?? "Claude turn failed"
+            return .notification(method: "error", params: ["error": ["message": message]])
+
+        default:
+            return event
         }
     }
 
@@ -372,18 +443,28 @@ final class ClaudeCodeRuntime: AgentRuntime {
                 try startThread(draft: draft)
             }
         } catch {
+            pendingDraft = nil
             statusText = "failed to start thread: \(error)"
         }
     }
 
     private func firePendingTurn(threadID: String) {
         guard let draft = pendingDraft else { return }
+        guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            pendingDraft = nil
+            statusText = "thread ready"
+            return
+        }
         do {
             let id = nextId; nextId += 1
-            try sendRequest(id: id, method: "turn/start", params: [
-                "threadId": threadID,
-                "input": [["type": "text", "text": draft.text]]
-            ])
+            var params: [String: Any] = [
+                "thread_id": threadID,
+                "content": draft.text
+            ]
+            if let model = draft.model, !model.isEmpty {
+                params["model"] = model
+            }
+            try sendRequest(id: id, method: "turn/start", params: params)
             pendingRequests[id] = PendingRequest(kind: .turnStart, createdAt: Date())
         } catch {
             pendingDraft = nil
@@ -459,6 +540,63 @@ private struct JSONRPCWriter {
         var line = String(data: data, encoding: .utf8)!
         line += "\n"
         try fileHandle.write(contentsOf: Data(line.utf8))
+    }
+}
+
+// MARK: - Claude Code Settings Reader
+
+/// Reads `~/.claude/settings.json` to discover the user's actual model
+/// configuration (provider-agnostic — could be Anthropic, DeepSeek, etc.).
+enum ClaudeCodeSettingsReader {
+    static func readModelNames() -> [String] {
+        let paths = [
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json").path,
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json").path,
+        ]
+        return readModelNames(paths: paths)
+    }
+
+    static func readModelNames(paths: [String]) -> [String] {
+        for path in paths {
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+
+            var models: [String] = []
+            let env = json["env"] as? [String: Any] ?? [:]
+
+            // Primary model (ANTHROPIC_MODEL)
+            if let model = env["ANTHROPIC_MODEL"] as? String, !model.isEmpty {
+                models.append(Self.modelAlias(model))
+            }
+
+            // Model defaults
+            for key in ["ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"] {
+                if let model = env[key] as? String, !model.isEmpty, !models.contains(model) {
+                    let mapped = Self.modelAlias(model)
+                    if !models.contains(mapped) { models.append(mapped) }
+                }
+            }
+
+            // Top-level aliases are Claude Code UI defaults. When provider env
+            // models exist (DeepSeek, etc.), those are the real model IDs.
+            if models.isEmpty, let model = json["model"] as? String {
+                let mapped = Self.modelAlias(model)
+                if !models.contains(mapped) { models.append(mapped) }
+            }
+
+            if !models.isEmpty { return models }
+        }
+        return ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"] // fallback
+    }
+
+    private static func modelAlias(_ alias: String) -> String {
+        switch alias.lowercased() {
+        case "opus": return "claude-opus-4-6"
+        case "sonnet": return "claude-sonnet-4-6"
+        case "haiku": return "claude-haiku-4-5"
+        default: return alias
+        }
     }
 }
 
