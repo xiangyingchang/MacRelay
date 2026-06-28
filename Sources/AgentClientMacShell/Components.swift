@@ -189,16 +189,10 @@ struct ResizableDivider: View {
     var edge: Edge = .trailing
 
     var body: some View {
-        // Visible 1px separator line + invisible 5px hit area = 6px total
-        ZStack {
-            Rectangle()
-                .fill(Theme.border)
-                .frame(width: 1)
-            Color.clear
-                .frame(width: 6)
-                .contentShape(Rectangle())
-        }
-        .frame(width: 6)
+        // Invisible 6px hit area — no visible line
+        Color.clear
+            .frame(width: 6)
+            .contentShape(Rectangle())
         .onHover { inside in
             if inside {
                 NSCursor.resizeLeftRight.push()

@@ -5,6 +5,8 @@ struct Sidebar: View {
     let toggleSidebar: () -> Void
     @Binding var showPhonePopover: Bool
     @Binding var showSettingsPopover: Bool
+    @State private var sessionsExpanded = true
+    @State private var workspaceExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,24 +24,72 @@ struct Sidebar: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
 
-            // Session list header
-            SessionListHeader()
-
-            // Session list
-            if !viewModel.displaySessions.isEmpty {
-                SessionListView(
-                    sessions: viewModel.displaySessions,
-                    activeID: viewModel.activeRunID,
-                    select: { id in
-                        viewModel.activeNav = "Sessions"
-                        viewModel.selectSession(id: id)
+            // Session list — active sessions only (not saved to workspace)
+            CollapsibleSectionHeader(
+                title: "会话",
+                count: viewModel.activeSessions.count,
+                isExpanded: $sessionsExpanded
+            )
+            // Scrollable content area
+            ScrollView {
+                VStack(spacing: 0) {
+                    if sessionsExpanded, !viewModel.activeSessions.isEmpty {
+                        SessionListView(
+                            sessions: viewModel.activeSessions,
+                            activeID: viewModel.activeRunID,
+                            select: { id in
+                                viewModel.activeNav = "Sessions"
+                                viewModel.selectSession(id: id)
+                            },
+                            onDelete: { id in viewModel.deleteSession(id: id) },
+                            onSave: { id in viewModel.saveSessionToWorkspace(id: id) }
+                        )
                     }
-                )
+
+                    // Workspace section — shows saved sessions
+                    CollapsibleSectionHeader(
+                        title: "空间",
+                        count: viewModel.workspaceSessions.count,
+                        isExpanded: $workspaceExpanded
+                    )
+                    .padding(.top, 4)
+                    if workspaceExpanded {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Theme.muted)
+                                Text(viewModel.workspaceFolderName)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Theme.fg)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+
+                            if !viewModel.workspaceSessions.isEmpty {
+                                ForEach(viewModel.workspaceSessions) { session in
+                                    SessionRow(
+                                        item: session,
+                                        isActive: session.id == viewModel.activeRunID,
+                                        action: {
+                                            viewModel.activeNav = "Sessions"
+                                            viewModel.selectSession(id: session.id)
+                                        },
+                                        onDelete: { viewModel.deleteSession(id: session.id) },
+                                        onSave: nil
+                                    )
+                                    .padding(.leading, 20)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
             }
 
-            Spacer()
-
-            // Bottom: Settings + Phone
+            // Bottom footer (fixed)
             SidebarFooter(viewModel: viewModel, showPhonePopover: $showPhonePopover, showSettingsPopover: $showSettingsPopover)
         }
         .background(Theme.sidebarBg)
@@ -73,19 +123,36 @@ struct NewTaskButton: View {
     }
 }
 
-// MARK: - Session List Header
-struct SessionListHeader: View {
+// MARK: - Collapsible Section Header
+
+struct CollapsibleSectionHeader: View {
+    let title: String
+    let count: Int
+    @Binding var isExpanded: Bool
+
     var body: some View {
-        HStack {
-            Text("会话")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.muted)
-                .tracking(0.6)
-                .textCase(.uppercase)
-            Spacer()
+        Button(action: { isExpanded.toggle() }) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Theme.muted)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.easeOut(duration: 0.12), value: isExpanded)
+                Text(title)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.muted)
+                    .tracking(0.6)
+                    .textCase(.uppercase)
+                Text("(\(count))")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Theme.muted.opacity(0.6))
+                Spacer()
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 14)
-        .padding(.bottom, 6)
+        .padding(.vertical, 4)
     }
 }
 
@@ -94,20 +161,30 @@ struct SessionListView: View {
     let sessions: [SessionListItem]
     let activeID: String
     let select: (String) -> Void
+    let onDelete: ((String) -> Void)?
+    let onSave: ((String) -> Void)?
+
+    init(sessions: [SessionListItem], activeID: String, select: @escaping (String) -> Void, onDelete: ((String) -> Void)? = nil, onSave: ((String) -> Void)? = nil) {
+        self.sessions = sessions
+        self.activeID = activeID
+        self.select = select
+        self.onDelete = onDelete
+        self.onSave = onSave
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 2) {
-                ForEach(sessions) { item in
-                    SessionRow(
-                        item: item,
-                        isActive: item.id == activeID,
-                        action: { select(item.id) }
-                    )
-                }
+        VStack(spacing: 2) {
+            ForEach(sessions) { item in
+                SessionRow(
+                    item: item,
+                    isActive: item.id == activeID,
+                    action: { select(item.id) },
+                    onDelete: onDelete.map { cb in { cb(item.id) } },
+                    onSave: onSave.map { cb in { cb(item.id) } }
+                )
             }
-            .padding(.horizontal, 8)
         }
+        .padding(.horizontal, 8)
     }
 }
 
@@ -116,33 +193,53 @@ struct SessionRow: View {
     let item: SessionListItem
     let isActive: Bool
     let action: () -> Void
+    var onDelete: (() -> Void)?
+    var onSave: (() -> Void)?
+    @State private var isHovering = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(isActive ? Theme.accent : Theme.muted.opacity(0.3))
-                    .frame(width: 6, height: 6)
-                VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(isActive ? Theme.accent : Theme.muted.opacity(0.3))
+                        .frame(width: 6, height: 6)
                     Text(item.title)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
-                    if !item.subtitle.isEmpty {
-                        Text(item.subtitle)
-                            .font(.system(size: 11))
-                            .lineLimit(1)
+                    Spacer()
+                }
+                .foregroundStyle(isActive ? Theme.fg : Theme.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                if let onSave {
+                    Button(action: onSave) {
+                        Label("保存到空间", systemImage: "tray.and.arrow.down")
                     }
                 }
-                Spacer()
-                if !item.status.isEmpty {
-                    StatusPill(text: item.status, tone: item.status == "active" ? .accent : .passive)
+                if let onDelete {
+                    Button(role: .destructive, action: onDelete) {
+                        Label("删除", systemImage: "trash")
+                    }
                 }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.muted)
+                    .frame(width: 28, height: 28)
             }
-            .foregroundStyle(isActive ? Theme.fg : Theme.muted)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .opacity(isHovering ? 1 : 0)
+            .scaleEffect(isHovering ? 1 : 0.8, anchor: .trailing)
         }
-        .buttonStyle(.plain)
+        .animation(.smooth(duration: 0.12), value: isHovering)
+        .onHover { hovering in isHovering = hovering }
+        .animation(.easeOut(duration: 0.15), value: isHovering)
         .background(isActive ? Theme.accent.opacity(0.12) : Color.clear)
         .overlay(
             RoundedRectangle(cornerRadius: Theme.radiusSm)
@@ -203,13 +300,6 @@ struct SidebarFooter: View {
                     .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
-            .overlay(
-                Circle()
-                    .fill(Theme.success)
-                    .frame(width: 6, height: 6)
-                    .offset(x: 8, y: -8),
-                alignment: .topTrailing
-            )
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)

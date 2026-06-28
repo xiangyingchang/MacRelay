@@ -324,12 +324,10 @@ public struct RelaySessionInfoPayload: Codable, Equatable, Identifiable {
         self.title = title
     }
 
-    /// First user message truncated to ~6 characters for display.
+    /// Display title — full text, SwiftUI handles truncation via .lineLimit(1).
     public var displayTitle: String {
         guard let title, !title.isEmpty else { return String(sessionID.prefix(8)) }
-        let cleaned = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleaned.count <= 6 { return cleaned }
-        return String(cleaned.prefix(6)) + "…"
+        return title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

@@ -161,6 +161,13 @@ final class SessionJournal {
         return messages
     }
 
+    /// Delete an archived session log from disk.
+    func deleteArchivedSession(sessionID: String) {
+        guard !workspacePath.isEmpty else { return }
+        let path = workspacePath + "/.macrelay/sessions/" + sessionID + ".log"
+        try? fileManager.removeItem(atPath: path)
+    }
+
     /// Append a summary of today's work to memory.md.
     func appendMemory(_ text: String) {
         guard !memoryPath.isEmpty else { return }

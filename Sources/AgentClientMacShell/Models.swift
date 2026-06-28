@@ -53,6 +53,10 @@ final class MacShellViewModel: ObservableObject {
         runtime.onThreadStarted = { [weak self] threadID in
             Task { @MainActor in
                 guard let self else { return }
+                // If workspace already has sessions, auto-save new ones to workspace
+                if !self.workspaceSessions.isEmpty {
+                    self.saveSessionToWorkspace(id: threadID)
+                }
                 self.bindCurrentMessages(toSession: threadID)
             }
         }
@@ -131,18 +135,38 @@ final class MacShellViewModel: ObservableObject {
         NavItem(title: "Settings", symbol: "gearshape")
     ]
 
-    /// Sessions displayed in the sidebar — from runtime.
-    var displaySessions: [SessionListItem] {
+    /// Session IDs saved to workspace (mutually exclusive with active list).
+    /// Uses @AppStorage so SwiftUI observes changes and re-renders the sidebar.
+    @AppStorage("savedSessionIDs") private var _savedSessionIDsData: Data = Data()
+    private var savedSessionIDs: Set<String> {
+        get { (try? JSONDecoder().decode(Set<String>.self, from: _savedSessionIDsData)) ?? [] }
+        set { _savedSessionIDsData = (try? JSONEncoder().encode(newValue)) ?? Data() }
+    }
+
+    /// All sessions from runtime.
+    var allSessionItems: [SessionListItem] {
         runtime.sessions.map { s in
             SessionListItem(
                 id: s.sessionID,
                 title: s.displayTitle,
-                subtitle: [s.model, s.cwd].compactMap { $0 }.joined(separator: " · "),
+                subtitle: "",
                 status: s.status ?? "idle",
                 count: 0
             )
         }
     }
+
+    /// Sessions NOT saved to workspace (shown in "会话" list).
+    var activeSessions: [SessionListItem] {
+        allSessionItems.filter { !savedSessionIDs.contains($0.id) }
+    }
+
+    /// Sessions saved to workspace (shown under "空间").
+    var workspaceSessions: [SessionListItem] {
+        allSessionItems.filter { savedSessionIDs.contains($0.id) }
+    }
+
+    var displaySessions: [SessionListItem] { allSessionItems }
 
     @Published var messages: [ConversationMessage] = []
 
@@ -266,6 +290,10 @@ final class MacShellViewModel: ObservableObject {
     }
 
     var projectCWD: String { workspaceCWD }
+    /// Last path component of the workspace directory (for sidebar display).
+    var workspaceFolderName: String {
+        URL(fileURLWithPath: workspaceCWD).lastPathComponent
+    }
 
     /// Open a system folder picker and update workspaceCWD.
     func selectWorkspace() {
@@ -279,8 +307,9 @@ final class MacShellViewModel: ObservableObject {
         panel.directoryURL = URL(fileURLWithPath: workspaceCWD)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         workspaceCWD = url.path
-        // Auto-load previous sessions from this workspace
+        // Auto-load previous sessions, then start a fresh session
         loadPreviousSessionMessages()
+        startNewSession()
         #endif
     }
 
@@ -319,6 +348,22 @@ final class MacShellViewModel: ObservableObject {
         messages = entries.map { role, text in
             ConversationMessage(role: role, text: text)
         }
+    }
+
+    /// Delete an archived session (remove from list + delete log file).
+    func deleteSession(id: String) {
+        var saved = savedSessionIDs
+        saved.remove(id)
+        savedSessionIDs = saved
+        runtime.sessions.removeAll(where: { $0.sessionID == id })
+        journal.deleteArchivedSession(sessionID: id)
+    }
+
+    /// Save a session to workspace (moves from active list to workspace list).
+    func saveSessionToWorkspace(id: String) {
+        var saved = savedSessionIDs
+        saved.insert(id)
+        savedSessionIDs = saved
     }
 
     /// Sandbox for thread/start. Codex app-server 0.141.0 expects kebab-case.
