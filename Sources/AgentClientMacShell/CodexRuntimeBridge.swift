@@ -31,34 +31,21 @@ struct PendingRequest {
     let createdAt: Date
 }
 
-// MARK: - CodexRuntimeBridge
+// MARK: - CodexRuntime
 
 @MainActor
-final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
+final class CodexRuntime: AgentRuntime {
+    override init() { super.init(); statusText = "Codex CLI detection pending" }
     @Published private(set) var detection = CodexCLIDetector.detect(includeVersion: false)
-    @Published private(set) var statusText = "Codex CLI detection pending"
-    @Published private(set) var modelNames: [String] = []
-    @Published private(set) var currentThreadID: String?
-    @Published private(set) var snapshot = SessionSnapshot()
-    @Published private(set) var latestTurnID: String?
-    @Published private(set) var rateLimitText = ""
-    @Published private(set) var isAppServerRunning = false
-    @Published private(set) var isInitialized = false
-    @Published private(set) var isInitializing = false
-    @Published private(set) var sessions: [RelaySessionInfoPayload] = []
-    @Published private(set) var selectedSessionID: String?
 
-    var selectedSessionCWD: String? {
+    override var cliInstalled: Bool { detection.isInstalled }
+
+    override var selectedSessionCWD: String? {
         guard let id = selectedSessionID else { return nil }
         return sessions.first(where: { $0.sessionID == id })?.cwd
     }
 
     var onTurnIDChanged: ((String?) -> Void)?
-    var onEventReceived: ((CodexAppServerEvent) -> Void)?
-    /// Fires when a new thread starts (thread/started notification).
-    /// The MacShellViewModel uses this to clear the conversation view
-    /// so a new session doesn't inherit old messages.
-    var onThreadStarted: ((String) -> Void)?
     var isProcessingTurn: Bool { pendingDraft != nil }
 
     // MARK: - Private state
@@ -79,28 +66,39 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         let approvalPolicy: String
     }
 
-    var isReadyForAppServer: Bool {
+    override var isReadyForAppServer: Bool {
         detection.isInstalled && client == nil
     }
 
     // MARK: - Detection
 
-    func refreshDetection() {
-        statusText = "Checking Codex CLI..."
-        Task.detached {
+    override func refreshDetection() {
+        if !detection.isInstalled {
             let result = CodexCLIDetector.detect()
-            await MainActor.run {
-                self.detection = result
-                self.statusText = result.isInstalled
-                    ? "Codex CLI found: \(result.version ?? result.executablePath ?? "installed")"
-                    : "Codex CLI not found"
+            detection = result
+        }
+        guard detection.isInstalled else {
+            statusText = "Codex CLI not found"
+            return
+        }
+        statusText = "Fetching models..."
+        // Start init → model/list chain so the model picker gets populated.
+        // The app-server stays running for the next session.
+        do {
+            if !isAppServerRunning {
+                try startAppServer(cwd: FileManager.default.currentDirectoryPath)
             }
+            if !isInitialized, !isInitializing {
+                try self.initialize()
+            }
+        } catch {
+            statusText = "model fetch failed: \(error)"
         }
     }
 
     // MARK: - App Server Lifecycle
 
-    func startAppServer(cwd: String) throws {
+    override func startAppServer(cwd: String) throws {
         guard let command = detection.executablePath else {
             statusText = "Codex CLI not installed"
             return
@@ -118,7 +116,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         statusText = "Codex app-server started"
     }
 
-    func stopAppServer() {
+    override func stopAppServer() {
         client?.stop()
         client = nil
         isAppServerRunning = false
@@ -134,7 +132,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
 
     /// Enqueues a user draft. If the app-server isn't initialized yet,
     /// starts the full chain: startAppServer → initialize → model/list → thread/start → turn/start.
-    func enqueueDraft(
+    override func enqueueDraft(
         cwd: String,
         text: String,
         model: String?,
@@ -160,11 +158,13 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         }
 
         if !isInitialized {
-            // Start init chain. Response handler will continue the chain:
-            // initialize response → initialized notification → model/list
-            // model/list response → firePendingDraft → thread/start
-            // thread/started notification → turn/start
-            try initialize()
+            if !isInitializing {
+                // Start init chain. Response handler will continue the chain:
+                // initialize response → initialized notification → model/list
+                // model/list response → firePendingDraft → thread/start
+                // thread/started notification → turn/start
+                try self.initialize()
+            }
             statusText = "Initializing → will auto-send draft..."
         } else if currentThreadID == nil {
             // Initialized but no thread yet
@@ -175,7 +175,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         }
     }
 
-    func resolveApproval(requestID: Int, decision: String) throws {
+    override func resolveApproval(requestID: Int, decision: String) throws {
         try client?.response(id: requestID, result: ["decision": decision])
         apply(.approvalResolved(requestID: requestID, decision: decision))
         statusText = "approval \(decision)"
@@ -184,7 +184,8 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     // MARK: - JSON-RPC Requests (low-level)
 
     @discardableResult
-    func initialize() throws -> Int {
+    override func initialize() throws -> Int {
+        guard !isInitializing else { return 0 }
         isInitializing = true
         let requestID = try sendRequest(
             method: "initialize",
@@ -266,7 +267,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
     /// Parameter sandboxPolicy uses camelCase values matching turn/start:
     ///   "readOnly", "workspaceWrite", "dangerFullAccess".
     @discardableResult
-    func updateSettings(
+    override func updateSettings(
         model: String?,
         effort: String?,
         approvalPolicy: String?,
@@ -338,12 +339,15 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
                 ?? (params?["thread"] as? [String: Any])?["id"] as? String {
                 currentThreadID = threadID
                 recordSession(threadID: threadID, params: params)
-                // Set session title from the user's first message
-                if let draft = pendingDraft, !draft.text.isEmpty,
-                   let idx = sessions.firstIndex(where: { $0.sessionID == threadID }) {
-                    sessions[idx].title = draft.text
+                // Set session title and fire turn only if there's real content
+                if let draft = pendingDraft, !draft.text.isEmpty {
+                    if let idx = sessions.firstIndex(where: { $0.sessionID == threadID }) {
+                        sessions[idx].title = draft.text
+                    }
+                    firePendingTurn(threadID: threadID)
                 }
-                firePendingTurn(threadID: threadID)
+                // Empty text means "create thread only" — next user message starts the turn
+                pendingDraft = nil
                 onThreadStarted?(threadID)
             }
         }
@@ -627,13 +631,13 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         }
     }
 
-    // MARK: - MacRelayRuntimeBridge
+    // MARK: - AgentRuntime
 
-    func listSessions() -> [RelaySessionInfoPayload] {
+    override func listSessions() -> [RelaySessionInfoPayload] {
         sessions
     }
 
-    func stopSession() throws {
+    override func stopSession() throws {
         pendingDraft = nil
         currentThreadID = nil
         latestTurnID = nil
@@ -641,7 +645,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         print("[Log] Sessions stopped")
     }
 
-    func clearCurrentThread() {
+    override func clearCurrentThread() {
         pendingDraft = nil
         currentThreadID = nil
         latestTurnID = nil
@@ -649,7 +653,7 @@ final class CodexRuntimeBridge: ObservableObject, MacRelayRuntimeBridge {
         print("[Log] Current thread cleared")
     }
 
-    func selectSession(sessionID: String) throws {
+    override func selectSession(sessionID: String) throws {
         guard sessions.contains(where: { $0.sessionID == sessionID }) else {
             throw MacRelayBridgeError.sessionNotFound("Session \(sessionID) not found")
         }

@@ -13,17 +13,17 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
 }
 
 @MainActor
-final class LiveCodexRuntimeBridge: MacRelayRuntimeBridge {
-    let client: CodexAppServerClient
+final class LiveCodexRuntimeBridge: AgentRuntime {
+    let client: CodexAppServerClient!
     private let reducer = SessionStateReducer()
     private var pending: [Int: String] = [:]
     private var waiters: Set<String> = []
-    private(set) var snapshot = SessionSnapshot()
     private(set) var lastTurnCompleted = false
     private(set) var lastError: String?
 
     init(codexPath: String, cwd: String) {
         self.client = CodexAppServerClient(codexCommand: codexPath, cwd: cwd)
+        super.init()
         self.client.onEvent = { [weak self] event in
             Task { @MainActor in self?.handle(event) }
         }
@@ -69,15 +69,15 @@ final class LiveCodexRuntimeBridge: MacRelayRuntimeBridge {
         }
     }
 
-    var currentThreadID: String?
-    func enqueueDraft(cwd: String, text: String, model: String?, effort: String?, threadSandbox: String, turnSandbox: String, approvalPolicy: String) throws {}
-    func updateSettings(model: String?, effort: String?, approvalPolicy: String?, sandboxPolicy: String?) throws -> Int { return 0 }
-    func resolveApproval(requestID: Int, decision: String) throws {}
-    func listSessions() -> [RelaySessionInfoPayload] { [] }
-    func stopSession() throws {}
-    func selectSession(sessionID: String) throws {}
-    var selectedSessionCWD: String? { nil }
-    func clearCurrentThread() {}
+    override var selectedSessionCWD: String? { nil }
+
+    override func enqueueDraft(cwd: String, text: String, model: String?, effort: String?, threadSandbox: String, turnSandbox: String, approvalPolicy: String) throws {}
+    override func updateSettings(model: String?, effort: String?, approvalPolicy: String?, sandboxPolicy: String?) throws -> Int { return 0 }
+    override func resolveApproval(requestID: Int, decision: String) throws {}
+    override func listSessions() -> [RelaySessionInfoPayload] { [] }
+    override func stopSession() throws {}
+    override func selectSession(sessionID: String) throws {}
+    override func clearCurrentThread() {}
 }
 
 @MainActor

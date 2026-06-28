@@ -1,43 +1,64 @@
 import Foundation
 
+// MARK: - Provider type
+
+public enum AgentProvider: String, Codable, CaseIterable {
+    case codex = "Codex CLI"
+    case claudeCode = "Claude Code"
+}
+
+// MARK: - AgentRuntime
+
+/// Base class for AI coding CLI runtimes (Codex CLI / Claude Code).
+/// Both speak JSON-RPC 2.0 over stdio with compatible event shapes.
+/// Using a class (not a protocol) so `ObservableObject` conformance
+/// is inherited and `@Published` properties work with SwiftUI.
 @MainActor
-public protocol MacRelayRuntimeBridge: AnyObject {
-    func enqueueDraft(
-        cwd: String,
-        text: String,
-        model: String?,
-        effort: String?,
-        threadSandbox: String,
-        turnSandbox: String,
-        approvalPolicy: String
-    ) throws
+open class AgentRuntime: ObservableObject {
+    @Published open var statusText = ""
+    @Published open var modelNames: [String] = []
+    @Published open var currentThreadID: String?
+    @Published open var snapshot = SessionSnapshot()
+    @Published open var latestTurnID: String?
+    @Published open var isAppServerRunning = false
+    @Published open var isInitialized = false
+    @Published open var isInitializing = false
+    @Published open var rateLimitText = ""
+    open var isReadyForAppServer: Bool { false }
 
-    func updateSettings(
-        model: String?,
-        effort: String?,
-        approvalPolicy: String?,
+    open func refreshDetection() {}
+    open var cliInstalled: Bool { false }
+
+    open func startAppServer(cwd: String) throws { fatalError("abstract") }
+    open func stopAppServer() {}
+    @discardableResult
+    open func initialize() throws -> Int { fatalError("abstract") }
+    @Published open var sessions: [RelaySessionInfoPayload] = []
+    @Published open var selectedSessionID: String?
+
+    open var selectedSessionCWD: String? { nil }
+
+    open var onEventReceived: ((CodexAppServerEvent) -> Void)?
+    open var onThreadStarted: ((String) -> Void)?
+
+    public init() {}
+
+    open func enqueueDraft(
+        cwd: String, text: String, model: String?, effort: String?,
+        threadSandbox: String, turnSandbox: String, approvalPolicy: String
+    ) throws { fatalError("abstract") }
+
+    @discardableResult
+    open func updateSettings(
+        model: String?, effort: String?, approvalPolicy: String?,
         sandboxPolicy: String?
-    ) throws -> Int
+    ) throws -> Int { fatalError("abstract") }
 
-    func resolveApproval(requestID: Int, decision: String) throws
-
-    /// Return all sessions (threads) known to this runtime.
-    func listSessions() -> [RelaySessionInfoPayload]
-
-    /// Stop the current session / thread.
-    func stopSession() throws
-
-    /// Select (switch to) the named session. Stops the current
-    /// session and initialises a fresh thread in that session's
-    /// project context (cwd / model / effort).
-    func selectSession(sessionID: String) throws
-
-    /// Return the selected session's cwd, or nil if none selected.
-    var selectedSessionCWD: String? { get }
-
-    /// Clear thread state so the next enqueueDraft creates a fresh thread
-    /// instead of starting a turn on the existing one.
-    func clearCurrentThread()
+    open func resolveApproval(requestID: Int, decision: String) throws { fatalError("abstract") }
+    open func listSessions() -> [RelaySessionInfoPayload] { [] }
+    open func stopSession() throws {}
+    open func selectSession(sessionID: String) throws {}
+    open func clearCurrentThread() {}
 }
 
 public enum MacRelayRuntimeCommandDispatchResult: Equatable {
@@ -56,10 +77,10 @@ extension MacRelayRuntimeCommandDispatchResult: CustomStringConvertible {
 
 @MainActor
 public struct MacRelayRuntimeCommandDispatcher {
-    private let runtime: MacRelayRuntimeBridge
+    private let runtime: AgentRuntime
     private let defaultCWD: () -> String
 
-    public init(runtime: MacRelayRuntimeBridge, defaultCWD: @escaping () -> String) {
+    public init(runtime: AgentRuntime, defaultCWD: @escaping () -> String) {
         self.runtime = runtime
         self.defaultCWD = defaultCWD
     }

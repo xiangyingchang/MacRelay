@@ -1,47 +1,127 @@
 import SwiftUI
 
-// Geist design system — Dark theme
-// https://vercel.com/design.dark.md
+// MARK: - MacRelay Design System
+// Reference: DESIGN.md — warm-neutral palette, teal accent
+
 enum Theme {
-    // Backgrounds
-    static let bgPrimary = Color(hex: "#151515")
-    static let bgSecondary = Color(hex: "#252728")
-    static let bgTertiary = Color(hex: "#303233")
-    static let bgHover = Color(hex: "#3a3c3d")
-    static let codeBg = Color(hex: "#111111")
-    static let canvas = Color(hex: "#111111")
-    static let elevated = Color(hex: "#2d2f30")
+    /// Reads current mode from UserDefaults so colors update reactively
+    /// when the parent view's `.id()` changes.
+    private static var isLight: Bool {
+        UserDefaults.standard.string(forKey: "themeMode") == "light"
+    }
 
-    // Bubbles / surfaces
-    static let agentBubble = Color(hex: "#202122")
-    static let userBubble = Color(hex: "#2f5f8f")
+    // ─── Backgrounds ─────────────────────────────────────────────
+    static var bg: Color { isLight ? Light.bg : Dark.bg }
+    static var surface: Color { isLight ? Light.surface : Dark.surface }
+    static var sidebarBg: Color { isLight ? Light.sidebarBg : Dark.sidebarBg }
+    static var sidebarHover: Color { isLight ? Light.sidebarHover : Dark.sidebarHover }
+    static var sidebarActive: Color { isLight ? Light.sidebarActive : Dark.sidebarActive }
 
-    // Accent
-    static let accent = Color(hex: "#4c9cff")
-    static let accentText = Color(hex: "#75b7ff")
-    static let accentSubtle = Color(hex: "#18344e")
+    // ─── Text ────────────────────────────────────────────────────
+    static var fg: Color { isLight ? Light.fg : Dark.fg }
+    static var muted: Color { isLight ? Light.muted : Dark.muted }
+    static var accentFg: Color { isLight ? Light.accentFg : Dark.accentFg }
 
-    // Semantic
-    static let success = Color(hex: "#31c46b")
-    static let warning = Color(hex: "#f6a83a")
-    static let warningBg = Color(hex: "#4b3218")
-    static let error = Color(hex: "#ff5b68")
+    // ─── Accent ──────────────────────────────────────────────────
+    static var accent: Color { isLight ? Light.accent : Dark.accent }
+    static var accentSoft: Color { accent.opacity(isLight ? 0.14 : 0.15) }
 
-    // Text
-    static let textPrimary = Color(hex: "#f1f1f1")
-    static let textSecondary = Color(hex: "#b8b8b8")
-    static let textMuted = Color(hex: "#8d8d8d")
+    // ─── Borders ─────────────────────────────────────────────────
+    static var border: Color { isLight ? Light.border : Dark.border }
+    static var borderBright: Color { isLight ? Light.borderBright : Dark.borderBright }
 
-    // Borders
-    static let border = Color(hex: "#383a3b")
-    static let borderBright = Color(hex: "#525557")
+    // ─── Semantic ────────────────────────────────────────────────
+    static var success: Color { isLight ? Light.success : Dark.success }
+    static var warning: Color { isLight ? Light.warning : Dark.warning }
+    static var error: Color { isLight ? Light.error : Dark.error }
 
-    // Geist rounded tokens
-    static let radiusSm: CGFloat = 6
+    // ─── Shadows ─────────────────────────────────────────────────
+    static var cardShadow: Shadow { isLight ? Light.cardShadow : Dark.cardShadow }
+    static var popoverShadow: Shadow { isLight ? Light.popoverShadow : Dark.popoverShadow }
+
+    // ─── Radii ───────────────────────────────────────────────────
+    static let radiusSm: CGFloat = 8
     static let radiusMd: CGFloat = 12
     static let radiusLg: CGFloat = 16
+    static let radiusXl: CGFloat = 20
 }
 
+// MARK: - Dark palette
+extension Theme {
+    enum Dark {
+        static let bg            = Color(hex: "#191816")
+        static let surface       = Color(hex: "#23211e")
+        static let sidebarBg     = Color(hex: "#141311")
+        static let sidebarHover  = Color(hex: "#23211e")
+        static let sidebarActive = Color(hex: "#3a8b80").opacity(0.12)
+
+        static let fg            = Color(hex: "#edebe5")
+        static let muted         = Color(hex: "#8f8b80")
+        static let accentFg      = Color(hex: "#0d0c0a")
+
+        static let accent        = Color(hex: "#56b0a4")
+
+        static let border        = Color(hex: "#33312b")
+        static let borderBright  = Color(hex: "#525557")
+
+        static let success       = Color(hex: "#4caf50")
+        static let warning       = Color(hex: "#f6a83a")
+        static let error         = Color(hex: "#e57373")
+
+        static let cardShadow    = Shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+        static let popoverShadow = Shadow(color: .black.opacity(0.3), radius: 24, y: 0)
+    }
+}
+
+// MARK: - Light palette
+extension Theme {
+    enum Light {
+        static let bg            = Color(hex: "#f6f5f1")
+        static let surface       = Color(hex: "#ffffff")
+        static let sidebarBg     = Color(hex: "#f0efe9")
+        static let sidebarHover  = Color(hex: "#e8e6de")
+        static let sidebarActive = Color(hex: "#3a8b80").opacity(0.10)
+
+        static let fg            = Color(hex: "#1e1d1a")
+        static let muted         = Color(hex: "#88847a")
+        static let accentFg      = Color(hex: "#ffffff")
+
+        static let accent        = Color(hex: "#3a8b80")
+
+        static let border        = Color(hex: "#e4e2da")
+        static let borderBright  = Color(hex: "#d0cdc4")
+
+        static let success       = Color(hex: "#4caf50")
+        static let warning       = Color(hex: "#f6a83a")
+        static let error         = Color(hex: "#e57373")
+
+        static let cardShadow    = Shadow(color: .black.opacity(0.04), radius: 3, y: 1)
+        static let popoverShadow = Shadow(color: .black.opacity(0.08), radius: 16, y: 4)
+    }
+}
+
+// MARK: - Shadow helper
+struct Shadow {
+    let color: Color
+    let radius: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+
+    init(color: Color, radius: CGFloat, x: CGFloat = 0, y: CGFloat = 0) {
+        self.color = color
+        self.radius = radius
+        self.x = x
+        self.y = y
+    }
+}
+
+extension View {
+    func dropShadow(_ shadow: Shadow) -> some View {
+        self.shadow(color: shadow.color, radius: shadow.radius, x: shadow.x, y: shadow.y)
+    }
+}
+
+// MARK: - Hex Color Extension
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -63,5 +143,17 @@ extension Color {
             blue: Double(b) / 255,
             opacity: Double(a) / 255
         )
+    }
+}
+
+// MARK: - Theme environment key
+private struct ThemeSchemeKey: EnvironmentKey {
+    static let defaultValue: Bool = false  // false = dark (default)
+}
+
+extension EnvironmentValues {
+    var isLightTheme: Bool {
+        get { self[ThemeSchemeKey.self] }
+        set { self[ThemeSchemeKey.self] = newValue }
     }
 }

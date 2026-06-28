@@ -1,9 +1,11 @@
 # AI 编程 CLI 客户端 Mac Relay 技术设计
 
-创建日期：2026-06-21  | 最后更新：2026-06-27
+创建日期：2026-06-21  | 最后更新：2026-06-28
 
 > **实现更新记录：**
 > - 2026-06-27：补充 `.app` bundle 形态、wsPort、Xcode project、Keychain、ATS、Inspector 布局等实现细节
+> - 2026-06-28：移除 Mock 模式；添加 session.select 命令；session title 从首条消息自动命名；修复 session.start 无 prompt 时创建空 thread；修复 snapshot.get 注入 availableSessions；修复 recordSession 时序（先 recordSession 再 broadcast）；新建 session 写入时清空 reducer 旧 turn 数据；添加 Mac 端侧边栏折叠功能；添加双端消息双向同步
+> - 2026-06-28（v2）：双 Provider 架构（Codex CLI / Claude Code）；Geist 设计系统主题（暗/亮模式切换）；手机配对弹窗、设置面板、侧边栏折叠按钮重做；Composer 工具栏按 HTML 原型重做
 > - 原始设计中的大部分架构保持不变，本节录的是实现过程中发现的关键差异和补充
 
 关联文档：
@@ -108,6 +110,120 @@ relayHTTPServer.wsServerPort = relayWSServer.port
 
 **原始设计：** 未涉及
 **实际发现：** 缺 `UILaunchScreen` 时 iOS 在应用启动到 SwiftUI 渲染之间显示黑屏。修复：Info.plist 添加 `UILaunchScreen`。
+
+### 3.4 新增：session.select 命令（2026-06-28）
+
+**需求：** iOS 端 session 列表筛选和切换功能。
+
+**实现：** 
+- 新增 `RelayCommandType.sessionSelect`（wire type: `session.select`），payload 仅含 `sessionID`。
+- `MacRelayRuntimeBridge` 协议新增 `selectSession(sessionID:)` 和 `selectedSessionCWD`。
+- `selectSession` 不重启 app-server，只更新 `selectedSessionID`，后续 turn 通过 `selectedSessionCWD` 使用选中 session 的 cwd。
+
+### 3.5 新增：session title 自动命名（2026-06-28）
+
+**需求：** session 名称使用首条用户消息（~6 字截断），而非显示 truncated sessionID。
+
+**实现：**
+- `RelaySessionInfoPayload` 新增 `title: String?` 字段 + `displayTitle` 计算属性。
+- 在 `CodexRuntimeBridge.handle()` 的 `thread/started` 和 `turn/started` 两个时机设置 title：
+  - `thread/started`：有 `pendingDraft.text` 时直接设置（带 prompt 创建）。
+  - `turn/started`：title 为空且 `pendingDraft.text` 非空时设置（无 prompt 创建后首次发消息）。
+
+### 3.6 修复：session.start 无 prompt 时不创建 thread（2026-06-28）
+
+**问题：** iOS 端点击 New Session 发送 `session.start`（无 `initialPrompt`），Mac dispatcher 只返回 "ready" 但不调用 `enqueueDraft`，导致没有新 thread 被创建。
+
+**修复：** 无 prompt 时也调用 `enqueueDraft(text:"")`，并先调 `clearCurrentThread()` 确保走 `startThread(draft:)` 路径而不是 `startTurnFromDraft()`（否则会在旧 thread 上开新 turn）。
+
+### 3.7 修复：snapshot.get 不返回 availableSessions（2026-06-28）
+
+**问题：** iOS 扫码连接后发送 `snapshot.get`，响应不包含 `availableSessions`（只在 push broadcast 中注入）。导致 iOS 初始列表为空、startNewSession 轮询永远检测不到新 session。
+
+**修复：** `MacRelayWebSocketServer.handleRelayCommand` 的 `snapshotGet` handler 中从 `commandDispatcher.listSessions()` 注入 `availableSessions`。
+
+### 3.8 修复：recordSession 在 broadcast 之后执行（2026-06-28）
+
+**问题：** `CodexRuntimeBridge.handle()` 先调 `onEventReceived`（触发 broadcast）再处理 `thread/started` 做 `recordSession`，导致 broadcast 发出时 `sessions` 数组尚未更新。
+
+**修复：** 将 `recordSession` + `firePendingTurn` 移到一个独立的 `if` 块中，在 `onEventReceived` 之前执行。
+
+### 3.9 修复：新建 session 继承旧对话历史（2026-06-28）
+
+**问题：** `SessionStateReducer` 的 `threadStarted` 动作只更新 `threadID` 和 `cwd`，不清除 `activeTurn`、`completedTurns` 等旧数据，导致新 session 的 snapshot 显示旧对话。
+
+**修复：** `threadStarted` case 中增加状态重置：`activeTurn = nil`、`completedTurns = []`、`pendingApprovals = [:]` 等。
+
+### 3.10 移除 Mock 模式（2026-06-28）
+
+**问题：** Mac Shell 长期在 Mock 模式下运行，iOS 客户端收不到真实 session。macOS 侧边栏的 session 列表使用硬编码的 `SessionListItem` 而非 `CodexRuntimeBridge.sessions`。
+
+**处理：** 
+- 移除 `RuntimeMode` 枚举。
+- 移除 `sendDraftMock()` 和所有 `if runtimeMode == .real` 分支。
+- `MacShellViewModel` 默认使用 real runtime。
+- Mac 侧边栏改为使用 `runtime.sessions` 映射显示。
+
+### 3.11 双端消息双向同步（2026-06-28）
+
+**问题：** iOS 端发送的消息不在 Mac 端显示。
+
+**原因：** Mac 端的消息流依赖 `streamingMessageID`（仅在 `sendDraftReal` 中设置），iOS 来的 turn 走 dispatcher → `enqueueDraft`，不经 `sendDraftReal`，`streamingMessageID` 为 nil，`handleSnapshotUpdate` 直接 return。
+
+**修复：** 
+- `MacShellViewModel.ingestRelayEvent()` 中检测 `turn/started` 事件，如果 `streamingMessageID == nil`（非 Mac 本地发起），自动创建 "User" 消息和 Codex 占位符。
+- `CodexRuntimeBridge` 新增 `onEventReceived` 回调，用于通信。
+
+### 3.12 Mac 侧边栏折叠（2026-06-28）
+
+**需求：** 侧边栏可折叠，收起后左侧留窄条保留展开按钮（Hermes Desktop 风格）。
+
+**实现：**
+- 新增 `CollapsedSidebar`（透明背景 + 展开按钮）。
+- 新增 `MacShellView.sidebarVisible` 状态控制展开/收起。
+- 折叠按钮在侧边栏右上角（展开态）/ 左侧窄条顶部（收起态），使用 `.ignoresSafeArea` 与红绿灯行对齐。
+
+### 3.13 双 Provider 架构：AgentRuntime 基类（2026-06-28）
+
+**需求：** 支持 Codex CLI 和 Claude Code 两种后端，可在设置中切换，切换后 UI（模型列表、选项等）同步更新。
+
+**实现：**
+- 将原有的 `MacRelayRuntimeBridge` protocol 改为 `AgentRuntime` 基类（`open class: ObservableObject`），统一管理 `@Published` 属性和抽象方法。
+- `CodexRuntime`（原名 `CodexRuntimeBridge`）继承 `AgentRuntime`。
+- `ClaudeCodeRuntime`（新增）继承 `AgentRuntime`，管理 `npx claude-app-server` 进程。
+- `MacShellViewModel.runtime` 类型改为 `AgentRuntime`，提供 `switchProvider(to:)` 切换方法。
+- 设置面板增加"模型提供方"选择器，支持 Codex CLI / Claude Code。
+
+**关键协议差异：**
+
+| 特性 | Codex CLI | Claude Code (claude-app-server) |
+|------|-----------|-------------------------------|
+| 启动命令 | `codex app-server --stdio` | `npx claude-app-server` |
+| 传输 | stdio (NDJSON) | stdio (NDJSON) |
+| thread/start 返回字段 | `id` | `thread_id` |
+| model/list 返回模型 | `gpt-5.4-mini` 等 | `claude-opus-4-6` 等 |
+| 审批 | `resolveApproval` JSON-RPC response | 同左 |
+
+### 3.14 修复：claude-app-server thread/start 响应格式（2026-06-28）
+
+**问题：** `claude-app-server` 的 `thread/start` 响应使用 snake_case 字段 `thread_id`，而 handler 只检查了 `id` 和 `thread.id`（camelCase）。导致 `currentThreadID` 永远为 nil，`firePendingTurn` 不触发，`pendingDraft` 卡死。后续所有 `enqueueDraft` 调用都因 `isProcessingTurn` 检查抛出 `turnInProgress` 错误。
+
+**修复：** `ClaudeCodeRuntime.handleResponse(.threadStart)` 增加 `result?["thread_id"] as? String` 检查。
+
+### 3.15 修复：双重 initialize 冲突（2026-06-28）
+
+**问题：** `refreshDetection()` 启动 app-server + init 链获取模型列表。如果用户在 init 完成前点击"新建任务"，`enqueueDraft` 会再次调用 `initialize()`，造成两个初始化请求冲突。
+
+**修复：**
+- `initialize()` 方法增加 `guard !isInitializing else { return 0 }`，防止重复初始化。
+- `enqueueDraft` 中 `if !isInitialized { if !isInitializing { try initialize() } }`，跳过已在进行的 init。
+- 两个 runtimes 同时修复。
+
+### 3.16 修复：空 turn 阻塞后续消息（2026-06-28）
+
+**问题：** `startNewSession()` 调用 `enqueueDraft(text:"")` 创建 thread 并启动空 turn。如果用户在空 turn 完成前发送消息，`enqueueDraft` 因 `isProcessingTurn` 检查抛出 `turnInProgress`。
+
+**修复：** `thread/started` 事件处理时检查 `pendingDraft.text` 是否为空。空文本时只创建 thread 不启动 turn，清除 `pendingDraft`。用户的第一个真实消息通过后续 `enqueueDraft` 正常创建第一个 turn。
 
 ---
 

@@ -7,7 +7,62 @@ import SwiftUI
 
 @MainActor
 final class MacShellViewModel: ObservableObject {
-    let runtime = CodexRuntimeBridge()
+    var runtime: AgentRuntime = CodexRuntime()
+
+    static func createRuntime(for provider: String) -> AgentRuntime {
+        switch provider {
+        case "Claude Code": return ClaudeCodeRuntime()
+        default: return CodexRuntime()
+        }
+    }
+
+    func setupRuntimeSubscriptions() {
+        cancellables.removeAll()
+        runtime.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        .store(in: &cancellables)
+
+        runtime.$snapshot
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newSnapshot in
+                self?.handleSnapshotUpdate(newSnapshot)
+            }
+            .store(in: &cancellables)
+
+        runtime.$latestTurnID
+            .receive(on: RunLoop.main)
+            .sink { [weak self] turnID in
+                self?.handleLatestTurnID(turnID)
+            }
+            .store(in: &cancellables)
+
+        runtime.onEventReceived = { [weak self] event in
+            Task { @MainActor in
+                self?.ingestRelayEvent(event)
+            }
+        }
+
+        runtime.onThreadStarted = { [weak self] threadID in
+            Task { @MainActor in
+                guard let self else { return }
+                self.bindCurrentMessages(toSession: threadID)
+            }
+        }
+    }
+
+    func switchProvider(to provider: String) {
+        runtime.stopAppServer()
+        runtime = Self.createRuntime(for: provider)
+        UserDefaults.standard.set(provider, forKey: "agentProvider")
+        messages.removeAll()
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
+        selectedModel = ""
+        runtime.refreshDetection()
+        setupRuntimeSubscriptions()
+    }
     let relayService = MacRelayService(
         connection: ConnectionSnapshotPayload(
             deviceID: "local-mac-ui",
@@ -91,7 +146,7 @@ final class MacShellViewModel: ObservableObject {
         ChangedFileMock(id: "plan", path: "产品/AI 编程 CLI 客户端落地执行计划.md", status: "Updated", impact: "+31 -0", reviewState: "Pending")
     ]
 
-    let fallbackModels = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+    let fallbackModels: [String] = []
     let efforts = ["low", "medium", "high", "xhigh"]
     let permissions = ["Read Only", "Default", "Full Access"]
     private var cancellables = Set<AnyCancellable>()
@@ -137,7 +192,7 @@ final class MacShellViewModel: ObservableObject {
     }
 
     var runtimeStatusTone: StatusPill.Tone {
-        runtime.detection.isInstalled ? .success : .warning
+        runtime.cliInstalled ? .success : .warning
     }
 
     /// Session status text derived from runtime.snapshot.
@@ -233,43 +288,17 @@ final class MacShellViewModel: ObservableObject {
         self.relayServerHost = hostMode == "lan" ? (lanIP ?? "127.0.0.1") : "127.0.0.1"
         self.relaySnapshot = relayService.snapshotEnvelope().payload
 
+        // Switch to stored provider if not Codex CLI
+        let storedProvider = UserDefaults.standard.string(forKey: "agentProvider") ?? "Codex CLI"
+        if storedProvider != "Codex CLI" {
+            runtime = Self.createRuntime(for: storedProvider)
+        }
+
         if relayServerConfiguredToStart {
             startRelayServer(persistConfiguration: false)
         }
 
-        // Forward runtime objectWillChange so SwiftUI redraws when bridge changes
-        runtime.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        .store(in: &cancellables)
-
-        // Subscribe to runtime snapshot for real-mode streaming
-        runtime.$snapshot
-            .receive(on: RunLoop.main)
-            .sink { [weak self] newSnapshot in
-                self?.handleSnapshotUpdate(newSnapshot)
-            }
-            .store(in: &cancellables)
-
-        runtime.$latestTurnID
-            .receive(on: RunLoop.main)
-            .sink { [weak self] turnID in
-                self?.handleLatestTurnID(turnID)
-            }
-            .store(in: &cancellables)
-
-        runtime.onEventReceived = { [weak self] event in
-            Task { @MainActor in
-                self?.ingestRelayEvent(event)
-            }
-        }
-
-        runtime.onThreadStarted = { [weak self] threadID in
-            Task { @MainActor in
-                guard let self else { return }
-                self.bindCurrentMessages(toSession: threadID)
-            }
-        }
+        setupRuntimeSubscriptions()
     }
 
     // MARK: - Actions
@@ -402,7 +431,7 @@ final class MacShellViewModel: ObservableObject {
 
     func refreshCodexDetection() {
         runtime.refreshDetection()
-        record(.sessionList, "codex.detect installed=\(runtime.detection.isInstalled)")
+        record(.sessionList, "codex.detect installed=\(runtime.cliInstalled)")
     }
 
     func requestRuntimeInitializeAndModels() {

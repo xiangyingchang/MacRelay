@@ -18,7 +18,8 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
 }
 
 @MainActor
-final class FakeRuntimeBridge: MacRelayRuntimeBridge {
+final class FakeRuntimeBridge: AgentRuntime {
+    override init() { super.init() }
     struct DraftCall: Equatable {
         let cwd: String
         let text: String
@@ -45,7 +46,7 @@ final class FakeRuntimeBridge: MacRelayRuntimeBridge {
     var settingsCalls: [SettingsCall] = []
     var approvalCalls: [ApprovalCall] = []
 
-    func enqueueDraft(
+    override func enqueueDraft(
         cwd: String,
         text: String,
         model: String?,
@@ -65,7 +66,7 @@ final class FakeRuntimeBridge: MacRelayRuntimeBridge {
         ))
     }
 
-    func updateSettings(model: String?, effort: String?, approvalPolicy: String?, sandboxPolicy: String?) throws -> Int {
+    override func updateSettings(model: String?, effort: String?, approvalPolicy: String?, sandboxPolicy: String?) throws -> Int {
         settingsCalls.append(SettingsCall(
             model: model,
             effort: effort,
@@ -75,19 +76,14 @@ final class FakeRuntimeBridge: MacRelayRuntimeBridge {
         return settingsCalls.count
     }
 
-    func resolveApproval(requestID: Int, decision: String) throws {
+    override func resolveApproval(requestID: Int, decision: String) throws {
         approvalCalls.append(ApprovalCall(requestID: requestID, decision: decision))
     }
 
-    func listSessions() -> [RelaySessionInfoPayload] { [] }
-
-    func stopSession() throws {}
-
-    func selectSession(sessionID: String) throws {}
-
-    var selectedSessionCWD: String? { nil }
-
-    func clearCurrentThread() {}
+    override func listSessions() -> [RelaySessionInfoPayload] { [] }
+    override func stopSession() throws {}
+    override func selectSession(sessionID: String) throws {}
+    override func clearCurrentThread() {}
 }
 
 @MainActor

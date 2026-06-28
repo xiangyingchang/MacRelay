@@ -1,17 +1,18 @@
 import AgentClientCore
 import SwiftUI
 
+// MARK: - Chat Workspace
 struct ChatWorkspace: View {
     @ObservedObject var viewModel: MacShellViewModel
 
     var body: some View {
         VStack(spacing: 0) {
+            // Messages area
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 0) {
                         if viewModel.messages.isEmpty && viewModel.pendingApproval == nil {
-                            EmptyConversationView(viewModel: viewModel)
-                                .padding(.top, 28)
+                            EmptyConversationView()
                         } else {
                             ForEach(viewModel.messages) { message in
                                 MessageRow(message: message)
@@ -27,9 +28,6 @@ struct ChatWorkspace: View {
                             .id("pending-approval")
                         }
                     }
-                    .padding(.horizontal, 40)
-                    .padding(.top, 54)
-                    .padding(.bottom, 44)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .onChange(of: viewModel.messages.last?.id) { _, newID in
@@ -45,149 +43,83 @@ struct ChatWorkspace: View {
                     }
                 }
             }
+            // Composer
             Composer(viewModel: viewModel)
         }
-        .background(Theme.canvas)
+        .background(Theme.bg)
     }
 }
 
-struct SessionHeader: View {
-    @ObservedObject var viewModel: MacShellViewModel
-
-    var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(viewModel.activeSession.title)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(Theme.textPrimary)
-                HStack(spacing: 8) {
-                    Text(viewModel.activeSession.subtitle.isEmpty ? viewModel.projectCWD : viewModel.activeSession.subtitle)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Theme.textMuted)
-                        .lineLimit(1)
-                    if let threadID = viewModel.runtime.currentThreadID {
-                        StatusPill(text: String(threadID.prefix(8)), tone: .accent)
-                    }
-                }
-            }
-            Spacer()
-            HeaderMetric(title: "Project", value: "AgentClientM1")
-            HeaderMetric(title: "Mode", value: viewModel.planModeEnabled ? "Plan" : "Act")
-            StatusPill(text: viewModel.sessionStatusText, tone: viewModel.sessionStatusTone)
-            IconOnlyButton(systemName: "stop.circle")
-            IconOnlyButton(systemName: "ellipsis")
-        }
-        .padding(.horizontal, 34)
-        .padding(.vertical, 18)
-        .background(Theme.bgPrimary)
-    }
-}
-
+// MARK: - Empty State
 struct EmptyConversationView: View {
-    @ObservedObject var viewModel: MacShellViewModel
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Ready for the next change")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(Theme.textPrimary)
-                Text("Ask for implementation, review, debugging, or project context. The workspace will keep session state, files, approvals, and relay status aligned.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineSpacing(3)
-                    .frame(maxWidth: 560, alignment: .leading)
-            }
-            HStack(spacing: 10) {
-                QuickPromptButton(title: "Review changes", systemName: "doc.text.magnifyingglass") {
-                    viewModel.draftText = "Review the current working tree and point out bugs or missing tests."
-                }
-                QuickPromptButton(title: "Run checks", systemName: "checkmark.seal") {
-                    viewModel.draftText = "Run the project checks and fix any failures."
-                }
-                QuickPromptButton(title: "Summarize state", systemName: "list.bullet.rectangle") {
-                    viewModel.draftText = "Summarize the current project state and outstanding work."
-                }
-            }
+        VStack(spacing: 0) {
+            Spacer()
+            Text("说说你在想什么")
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.muted)
+            Spacer()
         }
-        .padding(22)
-        .frame(maxWidth: 720, alignment: .leading)
-        .background(Theme.bgPrimary)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Theme.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: .infinity)
     }
 }
 
-struct QuickPromptButton: View {
-    let title: String
-    let systemName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemName)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(Theme.elevated)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
+// MARK: - Message Row
 struct MessageRow: View {
     let message: ConversationMessage
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if message.role == "User" {
-                Spacer(minLength: 110)
+        HStack(alignment: .top, spacing: 14) {
+            MessageAvatar(role: message.role)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message.role)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(message.role == "User" ? Theme.accent : Theme.muted)
                 Text(message.text)
                     .font(.system(size: 14))
                     .lineSpacing(3)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.fg)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-                    .background(Theme.userBubble)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .frame(maxWidth: 640, alignment: .trailing)
-            } else {
-                RoleBadge(role: message.role)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(message.role)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(roleColor)
-                    Text(message.text)
-                        .font(.system(size: 14))
-                        .lineSpacing(3)
-                        .foregroundStyle(Theme.textPrimary)
-                        .textSelection(.enabled)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(message.role == "Tool" ? Theme.codeBg : Theme.agentBubble)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Theme.border, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .frame(maxWidth: 720, alignment: .leading)
-                Spacer(minLength: 90)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-    }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Theme.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radiusMd)
+                    .stroke(Theme.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMd))
 
-    var roleColor: Color {
-        message.role == "Tool" ? Theme.warning : Theme.accentText
+            Spacer(minLength: 90)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 8)
     }
 }
 
+// MARK: - Message Avatar
+struct MessageAvatar: View {
+    let role: String
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(role == "User" ? Theme.accentSoft : Theme.surface)
+            Image(systemName: role == "User" ? "person.fill" : "command")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(role == "User" ? Theme.accent : Theme.muted)
+        }
+        .frame(width: 28, height: 28)
+        .overlay(
+            role == "User" ? nil :
+                Circle().stroke(Theme.border, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Command Approval Card
 struct CommandApprovalCard: View {
     let approval: RelayApprovalPayload
     let approve: () -> Void
@@ -195,7 +127,15 @@ struct CommandApprovalCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            RoleBadge(role: "Approval")
+            ZStack {
+                Circle()
+                    .fill(Theme.warning.opacity(0.15))
+                Image(systemName: "lock.open")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.warning)
+            }
+            .frame(width: 30, height: 30)
+
             VStack(alignment: .leading, spacing: 9) {
                 HStack {
                     Label("Approval required", systemImage: "lock.open")
@@ -205,14 +145,14 @@ struct CommandApprovalCard: View {
                 }
                 Text(approval.reason ?? approval.method)
                     .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(Theme.muted)
                 Text(approval.command ?? "-")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Theme.textPrimary)
+                    .foregroundStyle(Theme.fg)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.codeBg)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(Theme.bg)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
                 HStack(spacing: 8) {
                     Button(action: approve) {
                         Label("Approve", systemImage: "checkmark")
@@ -227,18 +167,21 @@ struct CommandApprovalCard: View {
                 .controlSize(.small)
             }
             .padding(12)
-            .frame(maxWidth: 720, alignment: .leading)
-            .background(Theme.warningBg)
+            .frame(maxWidth: 640, alignment: .leading)
+            .background(Theme.warning.opacity(0.08))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: Theme.radiusMd)
                     .stroke(Theme.warning.opacity(0.28), lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMd))
             Spacer(minLength: 90)
         }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 8)
     }
 }
 
+// MARK: - Composer
 struct Composer: View {
     @ObservedObject var viewModel: MacShellViewModel
     @State private var editorHeight: CGFloat = 72
@@ -246,179 +189,126 @@ struct Composer: View {
     private let maxEditorHeight: CGFloat = 320
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
+            // Text editor
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $viewModel.draftText)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.textPrimary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.fg)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
                     .padding(.horizontal, 12)
                     .padding(.top, 9)
+                    .frame(height: editorHeight)
+
                 if viewModel.draftText.isEmpty {
                     Text("提出后续修改要求")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Theme.textMuted)
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.muted.opacity(0.7))
                         .padding(.horizontal, 16)
                         .padding(.top, 11)
                         .allowsHitTesting(false)
                 }
-
-                // 上边缘拖拽 — 使用 AppKit NSTrackingArea 原生实现，确保光标变化
-                ResizeHandleView(
-                    editorHeight: $editorHeight,
-                    minHeight: minEditorHeight,
-                    maxHeight: maxEditorHeight
-                )
-                .frame(height: 6)
             }
             .frame(height: editorHeight)
-            .onChange(of: viewModel.draftText) { _, newValue in
-                if newValue.hasSuffix("\n") {
-                    viewModel.draftText = String(newValue.dropLast())
-                    viewModel.sendDraft()
+
+            // Resize handle (separate so it doesn't interfere with TextEditor)
+            ResizeHandleView(
+                editorHeight: $editorHeight,
+                minHeight: minEditorHeight,
+                maxHeight: maxEditorHeight
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 6)
+
+            // Toolbar
+            HStack(spacing: 6) {
+                // Workspace picker — transparent, no border (HTML style)
+                Button(action: { /* pick workspace */ }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 10))
+                        Text(viewModel.projectCWD)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: 80, alignment: .leading)
+                    }
+                    .foregroundStyle(Theme.muted)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
                 }
-            }
+                .buttonStyle(.plain)
+                .onHover { inside in
+                    // Hover effect handled by the chip container if needed
+                }
 
-            HStack(spacing: 12) {
-                ComposerIconButton(systemName: "plus")
                 SessionMenu(
-                    label: "Access",
-                    title: viewModel.selectedPermissionMode,
-                    width: 136,
-                    items: viewModel.permissions,
-                    selection: $viewModel.selectedPermissionMode,
-                    systemName: "shield",
-                    tint: Theme.warning,
-                    surface: Color.clear,
-                    stroke: Color.clear,
-                    onChange: viewModel.recordSettingsUpdate
+                    label: "Mode",
+                    title: viewModel.planModeEnabled ? "Plan" : "Act",
+                    items: ["Act", "Plan"],
+                    selection: Binding(
+                        get: { viewModel.planModeEnabled ? "Plan" : "Act" },
+                        set: { viewModel.planModeEnabled = $0 == "Plan"; viewModel.recordSettingsUpdate() }
+                    ),
+                    onChange: {}
                 )
+
+                SessionMenu(label: "Model", title: viewModel.selectedModel, items: viewModel.modelOptions, selection: $viewModel.selectedModel, onChange: viewModel.recordSettingsUpdate)
+                SessionMenu(label: "Effort", title: viewModel.selectedEffort.capitalized, items: viewModel.efforts, selection: $viewModel.selectedEffort, onChange: viewModel.recordSettingsUpdate)
+
                 Spacer()
-                SessionMenu(label: "Model", title: viewModel.selectedModel, width: 176, items: viewModel.modelOptions, selection: $viewModel.selectedModel, surface: Color.clear, stroke: Color.clear, onChange: viewModel.recordSettingsUpdate)
-                SessionMenu(label: "Effort", title: viewModel.selectedEffort.capitalized, width: 108, items: viewModel.efforts, selection: $viewModel.selectedEffort, systemName: "brain", surface: Color.clear, stroke: Color.clear, onChange: viewModel.recordSettingsUpdate)
-                PlanToggleButton(isOn: $viewModel.planModeEnabled, onChange: viewModel.recordSettingsUpdate)
-                ComposerSendButton(action: viewModel.sendDraft)
+
+                SendButton(action: viewModel.sendDraft, disabled: viewModel.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .frame(height: 40)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
         }
-        .padding(.horizontal, 26)
-        .padding(.top, 22)
-        .padding(.bottom, 18)
-        .frame(maxWidth: 860)
-        .background(Theme.bgSecondary)
+        .padding(.horizontal, 16)
+        .padding(.top, 28)
+        .padding(.bottom, 14)
+        .background(Theme.surface)
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(Theme.borderBright.opacity(0.78), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.radiusMd)
+                .stroke(Theme.border, lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMd))
         .padding(.horizontal, 36)
-        .padding(.top, 12)
-        .padding(.bottom, 18)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
-        .background(Theme.canvas)
+        .background(Theme.bg)
     }
 }
 
-struct ComposerIconButton: View {
-    let systemName: String
+// MARK: - Plan Toggle
+// MARK: - Send Button
+struct SendButton: View {
     let action: () -> Void
-
-    init(systemName: String, action: @escaping () -> Void = {}) {
-        self.systemName = systemName
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: 28, height: 32)
-        }
-        .buttonStyle(.plain)
-        .help(systemName)
-    }
-}
-
-struct ComposerSendButton: View {
-    let action: () -> Void
+    let disabled: Bool
 
     var body: some View {
         Button(action: action) {
             Image(systemName: "arrow.up")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(Theme.canvas)
-                .frame(width: 36, height: 36)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(disabled ? Theme.muted.opacity(0.3) : Theme.accentFg)
+                .frame(width: 30, height: 30)
         }
         .buttonStyle(.plain)
-        .background(Theme.textSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .background(disabled ? Color.clear : Theme.accent)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .disabled(disabled)
         .help("Send")
     }
 }
 
-struct PlanToggleButton: View {
-    @Binding var isOn: Bool
-    let onChange: () -> Void
-
-    var body: some View {
-        Button {
-            isOn.toggle()
-            onChange()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "switch.2")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(isOn ? "Plan" : "Act")
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-            }
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(isOn ? Theme.accentText : Theme.textSecondary)
-            .frame(width: 86, height: 34)
-        }
-        .buttonStyle(.plain)
-        .help(isOn ? "Plan mode" : "Act mode")
-    }
-}
-
+// MARK: - Session Menu
 struct SessionMenu: View {
     let label: String
     let title: String
-    let width: CGFloat
     let items: [String]
     @Binding var selection: String
-    let systemName: String?
-    let tint: Color
-    let surface: Color
-    let stroke: Color
     let onChange: () -> Void
-
-    init(
-        label: String,
-        title: String,
-        width: CGFloat,
-        items: [String],
-        selection: Binding<String>,
-        systemName: String? = nil,
-        tint: Color = Theme.textSecondary,
-        surface: Color = Theme.elevated,
-        stroke: Color = Theme.borderBright,
-        onChange: @escaping () -> Void
-    ) {
-        self.label = label
-        self.title = title
-        self.width = width
-        self.items = items
-        self._selection = selection
-        self.systemName = systemName
-        self.tint = tint
-        self.surface = surface
-        self.stroke = stroke
-        self.onChange = onChange
-    }
 
     var body: some View {
         Menu {
@@ -429,30 +319,18 @@ struct SessionMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 6) {
-                if let systemName {
-                    Image(systemName: systemName)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(tint)
-                }
-                Text(displayTitle)
-                    .foregroundStyle(tint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(1)
-            }
-            .font(.system(size: 14, weight: .semibold))
-            .padding(.horizontal, 10)
-            .frame(width: width, height: 34)
-            .background(surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: 9)
-                    .stroke(stroke, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 9))
+            Text(displayTitle)
+                .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Theme.bg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
         .help("\(label): \(displayTitle)")
     }
 
@@ -461,8 +339,7 @@ struct SessionMenu: View {
     }
 }
 
-// MARK: - 输入框上边缘拖拽调整高度（基于 AppKit NSTrackingArea）
-
+// MARK: - Resize Handle (AppKit)
 struct ResizeHandleView: NSViewRepresentable {
     @Binding var editorHeight: CGFloat
     let minHeight: CGFloat
@@ -490,6 +367,11 @@ class HandleNSView: NSView {
     weak var coordinator: ResizeHandleView.Coordinator?
     private var trackingArea: NSTrackingArea?
     private var lastGlobalY: CGFloat = 0
+    private var didPushCursor = false
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -511,29 +393,36 @@ class HandleNSView: NSView {
         addTrackingArea(trackingArea!)
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        NSCursor.resizeUpDown.push()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        NSCursor.pop()
-    }
+    override func mouseEntered(with event: NSEvent) { pushResizeCursor() }
+    override func mouseExited(with event: NSEvent) { popResizeCursor() }
 
     override func mouseDown(with event: NSEvent) {
+        pushResizeCursor()
         lastGlobalY = event.locationInWindow.y
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let coord = coordinator else { return }
-        let delta = lastGlobalY - event.locationInWindow.y
+        let delta = event.locationInWindow.y - lastGlobalY
+        // Up = taller, down = shorter
         coord.parent.editorHeight = max(
             coord.parent.minHeight,
-            min(coord.parent.maxHeight, coord.parent.editorHeight + delta)
+            min(coord.parent.maxHeight, coord.parent.editorHeight - delta)
         )
         lastGlobalY = event.locationInWindow.y
     }
 
-    override func mouseUp(with event: NSEvent) {
-        // 完成拖拽
+    override func mouseUp(with event: NSEvent) {}
+
+    private func pushResizeCursor() {
+        guard !didPushCursor else { return }
+        NSCursor.resizeUpDown.push()
+        didPushCursor = true
+    }
+
+    private func popResizeCursor() {
+        guard didPushCursor else { return }
+        NSCursor.pop()
+        didPushCursor = false
     }
 }

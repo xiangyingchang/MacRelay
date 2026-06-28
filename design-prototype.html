@@ -1,0 +1,1548 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MacRelay · 设计原型</title>
+  <style>
+    /* ─── Design tokens ────────────────────────────────────────── */
+    :root {
+      /* Dark mode (default) */
+      --bg:        #191816;
+      --surface:   #23211e;
+      --fg:        #edebe5;
+      --muted:     #8f8b80;
+      --border:    #33312b;
+      --accent:    #56b0a4;
+      --accent-soft: color-mix(in oklch, var(--accent) 15%, transparent);
+      --accent-fg: #0d0c0a;
+
+      --sidebar-bg:       #141311;
+      --sidebar-hover:    #23211e;
+      --sidebar-active:   color-mix(in oklch, var(--accent) 12%, var(--sidebar-bg));
+      --card-shadow:      0 1px 3px rgba(0,0,0,0.2);
+      --card-shadow-lg:   0 8px 24px rgba(0,0,0,0.3);
+
+      --font-display: -apple-system, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', Menlo, monospace;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+    }
+
+    [data-theme="light"] {
+      --bg:        #f6f5f1;
+      --surface:   #ffffff;
+      --fg:        #1e1d1a;
+      --muted:     #88847a;
+      --border:    #e4e2da;
+      --accent:    #3a8b80;
+      --accent-soft: color-mix(in oklch, var(--accent) 14%, transparent);
+      --accent-fg: #ffffff;
+
+      --sidebar-bg:       #f0efe9;
+      --sidebar-hover:    #e8e6de;
+      --sidebar-active:   color-mix(in oklch, var(--accent) 10%, var(--sidebar-bg));
+      --card-shadow:      0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+      --card-shadow-lg:   0 4px 16px rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.04);
+    }
+
+    /* ─── Reset & base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: var(--font-body);
+      background: #4a4945;
+      color: var(--fg);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    /* ─── Desktop chrome ───────────────────────────────────────── */
+    .mac-window {
+      width: 1320px;
+      max-width: 100%;
+      height: 820px;
+      background: var(--bg);
+      border-radius: var(--radius-xl);
+      box-shadow: 0 16px 48px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.06);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ─── Title bar ────────────────────────────────────────────── */
+    .titlebar {
+      display: flex;
+      align-items: stretch;
+      -webkit-app-region: drag;
+      user-select: none;
+      flex-shrink: 0;
+      gap: 1px;
+      background: var(--border);
+      position: relative;
+    }
+    .titlebar-segment {
+      display: flex;
+      align-items: center;
+      -webkit-app-region: no-drag;
+    }
+    .titlebar-s1 {
+      width: 240px;
+      min-width: 240px;
+      background: var(--sidebar-bg);
+      padding: 10px 16px 10px 14px;
+      gap: 10px;
+      transition: width 0.2s ease, min-width 0.2s ease;
+    }
+    .titlebar-s1.collapsed {
+      width: 0;
+      min-width: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .titlebar-s2 {
+      flex: 1;
+      background: var(--bg);
+      padding: 10px 24px;
+      gap: 8px;
+    }
+    .titlebar-s3 {
+      width: 290px;
+      min-width: 290px;
+      background: var(--sidebar-bg);
+      transition: width 0.2s ease, min-width 0.2s ease;
+    }
+
+    .traffic-lights {
+      display: flex;
+      gap: 7px;
+      -webkit-app-region: no-drag;
+    }
+    .traffic-lights span {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      display: block;
+    }
+    .tl-close   { background: #fc5a57; }
+    .tl-min     { background: #febc2e; }
+    .tl-zoom    { background: #2bc840; }
+
+    .sidebar-toggle-wrap {
+      position: relative;
+    }
+    .sidebar-toggle, .inspector-toggle {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 10;
+      width: 20px; height: 20px;
+      border: none;
+      background: transparent;
+      color: color-mix(in oklch, var(--muted) 50%, transparent);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .sidebar-toggle:hover, .inspector-toggle:hover {
+      color: var(--muted);
+      background: color-mix(in oklch, var(--fg) 6%, transparent);
+    }
+    .sidebar-toggle { left: 198px; }
+    .inspector-toggle { right: 268px; }
+    .inspector-toggle svg { transition: transform 0.2s ease; }
+    .inspector-toggle.collapsed { right: 8px; }
+    .inspector-toggle.collapsed svg { transform: rotate(180deg); }
+    .sidebar-toggle.collapsed {
+      left: 14px;
+    }
+    .titlebar.sidebar-collapsed .titlebar-s2 {
+      padding-left: 56px;
+    }
+    .titlebar.inspector-collapsed .titlebar-s3 {
+      width: 0;
+      min-width: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .inspector.collapsed {
+      width: 0;
+      min-width: 0;
+      padding: 0;
+    }
+    .sidebar-toggle svg {
+      transition: transform 0.2s ease;
+    }
+    .sidebar-toggle.collapsed svg {
+      transform: rotate(180deg);
+    }
+
+    /* ─── Three-column layout ──────────────────────────────────── */
+    .app-body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: 1px;
+      background: var(--border);
+    }
+
+    /* ─── Sidebar (col 1) ──────────────────────────────────────── */
+    .sidebar {
+      width: 240px;
+      min-width: 240px;
+      background: var(--sidebar-bg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.2s ease, min-width 0.2s ease;
+    }
+    .sidebar.collapsed {
+      width: 0;
+      min-width: 0;
+      padding: 0;
+    }
+    .sidebar-module {
+      padding: 0 10px;
+    }
+    .newtask-module {
+      padding: 8px 10px 4px;
+    }
+    .sessions-module {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .sidebar-section-header {
+      padding: 10px 14px 6px;
+    }
+    .sidebar-section-header h2 {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .new-task-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px dashed var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s ease;
+      font-family: var(--font-body);
+    }
+    .new-task-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      border-style: solid;
+      background: var(--sidebar-active);
+    }
+    .new-task-btn svg {
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+    .new-task-btn:hover svg {
+      opacity: 1;
+    }
+
+    .session-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px;
+    }
+    .session-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 0.1s ease;
+      position: relative;
+    }
+    .session-item:hover { background: var(--sidebar-hover); }
+    .session-item.active { background: var(--sidebar-active); }
+    .session-item.active::before {
+      content: '';
+      position: absolute;
+      left: -6px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px; height: 20px;
+      border-radius: 3px;
+      background: var(--accent);
+    }
+    .session-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--muted);
+    }
+    .session-dot.active { background: var(--accent); }
+    .session-dot.idle   { background: #c0bcb0; }
+    .session-info { flex: 1; min-width: 0; }
+    .session-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-meta {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-check { color: var(--accent); font-size: 12px; }
+
+    /* Sidebar footer */
+    .sidebar-footer {
+      display: flex;
+      gap: 4px;
+      padding: 8px 10px;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-footer button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      padding: 8px 10px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: color 0.1s ease, background 0.1s ease;
+      font-family: var(--font-body);
+      position: relative;
+      justify-content: center;
+    }
+    .sidebar-footer button:first-child {
+      justify-content: flex-start;
+    }
+    .sidebar-footer button:last-child { flex: 0; }
+    .sidebar-footer .phone-btn {
+      flex: 0 0 auto;
+      width: 34px;
+      padding: 8px 0;
+      position: relative;
+      justify-content: center;
+    }
+    .sidebar-footer button:hover {
+      color: var(--fg);
+      background: var(--sidebar-hover);
+    }
+    .sidebar-footer .icon, .sidebar-footer .phone-icon {
+      font-size: 14px;
+      opacity: 0.7;
+    }
+    .sidebar-footer .phone-icon { opacity: 0.8; font-size: 15px; }
+    .phone-status-dot {
+      position: absolute;
+      top: 6px; right: 4px;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #4caf50;
+      border: 1.5px solid var(--sidebar-bg);
+    }
+
+    /* ─── Main conversation area (col 2) ───────────────────────── */
+    .main-area {
+      flex: 1;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .main-area.centered {
+      justify-content: center;
+    }
+    .main-area.centered .message-area {
+      flex: 0 0 auto;
+    }
+    .main-area.centered .empty-state {
+      padding: 0 24px 12px;
+    }
+    .main-area.centered .composer-area {
+      padding: 0 16px 14px;
+    }
+    .chat-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 24px 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .chat-header-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .chat-header-status {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+
+    /* Messages (flat, Claude-style) */
+    .message-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+    }
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      height: 100%;
+      padding: 12px;
+    }
+    .empty-state-text {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.5;
+      max-width: 280px;
+    }
+
+    .message-group { padding: 0 24px; }
+    .message {
+      display: flex;
+      gap: 14px;
+      padding: 16px 0;
+    }
+    .message + .message { border-top: 1px solid var(--border); }
+    .message-avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    .message-avatar.user {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .message-avatar.assistant {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .message-content {
+      flex: 1;
+      min-width: 0;
+      background: var(--surface);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+    }
+    .message:first-child .message-content {
+      border-top-left-radius: var(--radius-md);
+    }
+    .message-role {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .message-role.user-role { color: var(--accent); }
+    .message-text {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--fg);
+      white-space: pre-wrap;
+    }
+    .message-text p { margin-bottom: 8px; }
+    .message-text p:last-child { margin-bottom: 0; }
+    .message-text code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--bg);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .message-text pre {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--bg);
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      margin: 8px 0;
+      line-height: 1.5;
+    }
+
+    /* Composer */
+    .composer-area {
+      padding: 4px 16px 12px;
+      flex-shrink: 0;
+    }
+    .composer-box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: var(--card-shadow);
+      overflow: hidden;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      position: relative;
+    }
+    .composer-box:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft), var(--card-shadow);
+    }
+    .composer-resize-zone {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 8px;
+      cursor: ns-resize;
+      z-index: 2;
+    }
+    .composer-textarea {
+      width: 100%;
+      border: none;
+      background: transparent;
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 12px 14px;
+      resize: none;
+      outline: none;
+      min-height: 44px;
+      max-height: 200px;
+    }
+    .composer-textarea::placeholder { color: var(--muted); opacity: 0.7; }
+    .composer-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px 8px;
+      border-top: 1px solid var(--border);
+    }
+    .composer-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      font-family: var(--font-body);
+    }
+    .composer-chip svg {
+      margin-left: 1px;
+      opacity: 0.6;
+    }
+    .composer-chip:hover { border-color: var(--accent); color: var(--accent); }
+    .composer-chip.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .composer-send {
+      margin-left: auto;
+      width: 32px; height: 32px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: var(--accent);
+      color: var(--accent-fg);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 16px;
+      transition: opacity 0.1s ease;
+    }
+    .composer-send:hover { opacity: 0.85; }
+    .composer-send:disabled { opacity: 0.3; cursor: default; }
+
+    .workspace-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: var(--font-body);
+      transition: all 0.1s ease;
+      margin-right: 6px;
+    }
+    .workspace-picker:hover {
+      background: var(--sidebar-hover);
+      color: var(--fg);
+    }
+    .workspace-picker svg { flex-shrink: 0; }
+    .workspace-path {
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ─── Inspector (col 3) ────────────────────────────────────── */
+    .inspector {
+      width: 290px;
+      min-width: 290px;
+      background: var(--sidebar-bg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .inspector-header {
+      padding: 12px 14px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    .inspector-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .inspector-section {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .inspector-section-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: background 0.1s ease;
+      user-select: none;
+    }
+    .inspector-section-header:hover { background: var(--sidebar-hover); }
+    .inspector-section-header .chevron {
+      font-size: 8px;
+      color: var(--muted);
+      transition: transform 0.15s ease;
+    }
+    .inspector-section-header .chevron.open { transform: rotate(90deg); }
+    .inspector-section-header .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .inspector-section-header .badge {
+      margin-left: auto;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .inspector-section-body {
+      padding: 8px 10px 10px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--fg);
+    }
+
+    .file-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+    }
+    .file-row + .file-row { border-top: 1px solid var(--border); }
+    .file-icon {
+      width: 24px; height: 24px;
+      border-radius: 6px;
+      background: var(--bg);
+      display: grid; place-items: center;
+      font-size: 11px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .file-info { flex: 1; min-width: 0; }
+    .file-path {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--fg);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-status { font-size: 10px; color: var(--muted); }
+    .file-actions { display: flex; gap: 4px; }
+    .file-action-btn {
+      width: 22px; height: 22px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      cursor: pointer;
+      display: grid; place-items: center;
+      font-size: 10px;
+      transition: all 0.1s ease;
+    }
+    .file-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .file-action-btn.approve:hover { border-color: #4caf50; color: #4caf50; }
+    .file-action-btn.discard:hover { border-color: #e57373; color: #e57373; }
+
+    .diff-preview {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.6;
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 10px;
+    }
+    .diff-line { display: flex; gap: 8px; }
+    .diff-line .prefix { width: 14px; flex-shrink: 0; text-align: right; }
+    .diff-line.add { color: #4caf50; }
+    .diff-line.del { color: #e57373; }
+    .diff-line.ctx { color: var(--muted); }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 0;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+    }
+    .status-dot.green { background: #4caf50; }
+    .status-dot.amber { background: #f6a83a; }
+    .status-dot.blue  { background: var(--accent); }
+    .status-label { font-size: 11px; color: var(--muted); }
+    .status-value {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--fg);
+    }
+    .status-value.mono { font-family: var(--font-mono); }
+
+
+
+    /* ─── Phone popover ────────────────────────────────────────── */
+    .phone-popover-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.15);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+    }
+    .phone-popover-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .phone-popover {
+      position: fixed;
+      bottom: 74px;
+      left: 24px;
+      width: 290px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--card-shadow-lg);
+      z-index: 101;
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      transform-origin: bottom left;
+    }
+    .phone-popover.show {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+    .phone-popover-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 12px 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .phone-popover-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .phone-popover-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .phone-popover-status-badge {
+      font-size: 10px;
+      font-weight: 600;
+      color: #4caf50;
+    }
+    .phone-popover-close {
+      width: 26px; height: 26px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: all 0.1s ease;
+      flex-shrink: 0;
+    }
+    .phone-popover-close:hover {
+      background: var(--sidebar-hover);
+      color: var(--fg);
+    }
+    .phone-popover-body {
+      padding: 16px;
+    }
+    .popover-qr-area {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 14px;
+      align-items: center;
+    }
+    .pairing-qr-img {
+      width: 72px; height: 72px;
+      background: white;
+      border-radius: var(--radius-sm);
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+    .pairing-qr-img svg { width: 48px; height: 48px; }
+    .popover-quick-status { flex: 1; }
+    .popover-status-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+    .popover-status-line .status-dot { width: 6px; height: 6px; }
+    .popover-status-line .status-label { font-weight: 600; }
+    .popover-status-line .status-value {
+      margin-left: auto;
+    }
+    .popover-detail-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 3px 0;
+    }
+    .popover-detail-key {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      width: 36px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .popover-detail-val {
+      font-size: 11px;
+      color: var(--fg);
+    }
+    .popover-detail-val.mono { font-family: var(--font-mono); }
+    .popover-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 12px 0;
+    }
+    .popover-uri-box {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--muted);
+      word-break: break-all;
+      line-height: 1.6;
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 12px;
+    }
+    .popover-uri-label {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .popover-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .popover-btn {
+      flex: 1;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--accent);
+      color: var(--accent-fg);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-body);
+      transition: opacity 0.1s ease;
+      text-align: center;
+    }
+    .popover-btn:hover { opacity: 0.85; }
+    .popover-btn-secondary {
+      background: transparent;
+      color: var(--fg);
+      border-color: var(--border);
+    }
+    .popover-btn-secondary:hover {
+      border-color: var(--fg);
+    }
+
+
+    /* ─── Settings popover ──────────────────────────────────────── */
+    .settings-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.15);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+    }
+    .settings-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .settings-popover {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      top: 0;
+      width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      box-shadow: var(--card-shadow-lg);
+      z-index: 101;
+      opacity: 0;
+      transform: translateX(-20px);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .settings-popover.show {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+    .settings-popover-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-popover-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .settings-popover-close {
+      width: 26px; height: 26px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: all 0.1s ease;
+    }
+    .settings-popover-close:hover {
+      background: var(--sidebar-hover);
+      color: var(--fg);
+    }
+    .settings-popover-body {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+    }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .settings-row-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--fg);
+    }
+    .settings-row-label svg { color: var(--muted); }
+    .theme-switch {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .theme-option {
+      padding: 5px 12px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: var(--font-body);
+      transition: all 0.1s ease;
+    }
+    .theme-option.active {
+      background: var(--accent);
+      color: var(--accent-fg);
+    }
+    .theme-option:not(.active):hover {
+      color: var(--fg);
+    }
+    .theme-option + .theme-option {
+      border-left: 1px solid var(--border);
+    }
+
+    /* ─── Scrollbar ────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="mac-window" id="app">
+
+    <!-- Title bar -->
+    <div class="titlebar">
+      <div class="titlebar-segment titlebar-s1">
+        <div class="traffic-lights">
+          <span class="tl-close"></span>
+          <span class="tl-min"></span>
+          <span class="tl-zoom"></span>
+        </div>
+      </div>
+      <div class="titlebar-segment titlebar-s2">
+        <span class="chat-header-title">重构认证模块</span>
+        <span class="chat-header-status">活跃</span>
+      </div>
+      <div class="titlebar-segment titlebar-s3"></div>
+      <button class="inspector-toggle" onclick="toggleInspector()" title="收起面板">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/><line x1="19" y1="4" x2="19" y2="20"/></svg>
+      </button>
+      <button class="sidebar-toggle" onclick="toggleSidebar()" title="收起侧栏">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="4" x2="5" y2="20"/><polyline points="15 16 11 12 15 8"/></svg>
+      </button>
+    </div>
+
+    <!-- Three-column body -->
+    <div class="app-body">
+
+      <!-- ─── SIDEBAR ────────────────────────────────────────────── -->
+      <aside class="sidebar">
+        <div class="sidebar-module newtask-module">
+          <button class="new-task-btn" onclick="showEmptyState()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            <span>新建任务</span>
+          </button>
+        </div>
+
+        <div class="sidebar-module sessions-module">
+          <div class="sidebar-section-header">
+            <h2>会话</h2>
+          </div>
+          <div class="session-list">
+          <div class="session-item active" onclick="showDemoMessages()">
+            <span class="session-dot active"></span>
+            <div class="session-info">
+              <div class="session-name">重构认证模块</div>
+              <div class="session-meta">Claude Opus · 12 条消息</div>
+            </div>
+            <span class="session-check">✓</span>
+          </div>
+          <div class="session-item" onclick="showDemoMessages()">
+            <span class="session-dot active"></span>
+            <div class="session-info">
+              <div class="session-name">新增 API 路由</div>
+              <div class="session-meta">Claude Sonnet · 8 条消息</div>
+            </div>
+          </div>
+          <div class="session-item" onclick="showDemoMessages()">
+            <span class="session-dot idle"></span>
+            <div class="session-info">
+              <div class="session-name">数据库迁移脚本</div>
+              <div class="session-meta">3 天前</div>
+            </div>
+          </div>
+          <div class="session-item" onclick="showDemoMessages()">
+            <span class="session-dot idle"></span>
+            <div class="session-info">
+              <div class="session-name">UI 组件库重构</div>
+              <div class="session-meta">5 天前</div>
+            </div>
+          </div>
+          <div class="session-item" onclick="showDemoMessages()">
+            <span class="session-dot idle"></span>
+            <div class="session-info">
+              <div class="session-name">性能优化 · 首页加载</div>
+              <div class="session-meta">1 周前</div>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <button onclick="toggleSettings()">
+            <span class="icon">&#9881;</span>
+            设置
+          </button>
+          <button class="phone-btn" onclick="togglePhonePopover()">
+            <svg class="phone-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            <span class="phone-status-dot"></span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Phone popover -->
+      <div class="phone-popover-overlay" id="phoneOverlay" onclick="closePhonePopover()"></div>
+      <div class="phone-popover" id="phonePopover">
+        <div class="phone-popover-header">
+          <div class="phone-popover-header-left">
+            <span class="phone-popover-title">手机配对</span>
+            <span class="phone-popover-status-badge">&#9679; 已连接</span>
+          </div>
+          <button class="phone-popover-close" onclick="closePhonePopover()" title="关闭">&#10005;</button>
+        </div>
+        <div class="phone-popover-body">
+          <div class="popover-qr-area">
+            <div class="pairing-qr-img">
+              <svg viewBox="0 0 40 40" fill="none"><rect x="4" y="4" width="8" height="8" fill="#111" rx="1"/><rect x="16" y="4" width="8" height="8" fill="#111" rx="1"/><rect x="4" y="16" width="8" height="8" fill="#111" rx="1"/><rect x="28" y="4" width="8" height="8" fill="#111" rx="1"/><rect x="16" y="16" width="4" height="4" fill="#111" rx="0.5"/><rect x="24" y="24" width="12" height="12" fill="#111" rx="1"/><rect x="4" y="28" width="4" height="4" fill="#111" rx="0.5"/><rect x="12" y="28" width="4" height="4" fill="#111" rx="0.5"/><rect x="22" y="16" width="6" height="4" fill="#111" rx="0.5"/><rect x="28" y="24" width="4" height="4" fill="#111" rx="0.5"/></svg>
+            </div>
+            <div class="popover-quick-status">
+              <div class="popover-status-line">
+                <span class="status-dot green"></span>
+                <span class="status-label">已连接</span>
+                <span class="status-value mono">v0.8.3</span>
+              </div>
+              <div class="popover-detail-row">
+                <span class="popover-detail-key">主机</span>
+                <span class="popover-detail-val mono">192.168.1.5</span>
+              </div>
+              <div class="popover-detail-row">
+                <span class="popover-detail-key">端口</span>
+                <span class="popover-detail-val mono">4712</span>
+              </div>
+              <div class="popover-detail-row">
+                <span class="popover-detail-key">设备</span>
+                <span class="popover-detail-val">iPhone 16 Pro</span>
+              </div>
+            </div>
+          </div>
+          <div class="popover-divider"></div>
+          <div class="popover-uri-label">配对 URI</div>
+          <div class="popover-uri-box">macrelay://claim/7a8f2c4e-9b1d-4f63-a5c8-e3f1b2d7a90c</div>
+          <div class="popover-actions">
+            <button class="popover-btn" onclick="copyURI(this)">复制 URI</button>
+            <button class="popover-btn popover-btn-secondary">刷新二维码</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings popover -->
+      <div class="settings-overlay" id="settingsOverlay" onclick="closeSettings()"></div>
+      <div class="settings-popover" id="settingsPopover">
+        <div class="settings-popover-header">
+          <span class="settings-popover-title">设置</span>
+          <button class="settings-popover-close" onclick="closeSettings()">&#10005;</button>
+        </div>
+        <div class="settings-popover-body">
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+              <span>外观</span>
+            </div>
+            <div class="theme-switch">
+              <button class="theme-option" id="themeLight" onclick="setTheme('light')">浅色</button>
+              <button class="theme-option active" id="themeDark" onclick="setTheme('dark')">深色</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── MAIN ──────────────────────────────────────────────── -->
+      <main class="main-area">
+
+        <div class="message-area" id="messageArea">
+          <div class="empty-state" id="emptyState">
+            <span class="empty-state-text">说说你在想什么</span>
+          </div>
+
+          <div id="demoMessages" style="display:none;">
+            <div class="message-group">
+              <div class="message">
+                <div class="message-avatar user">你</div>
+                <div class="message-content">
+                  <div class="message-role user-role">你</div>
+                  <div class="message-text">
+                    <p>审查一下当前工作区的改动，看看有没有 bug 或者遗漏的测试。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="message">
+                <div class="message-avatar assistant">&#8984;</div>
+                <div class="message-content">
+                  <div class="message-role">Codex</div>
+                  <div class="message-text">
+                    <p>好的，我来审查当前改动。主要发现了以下问题：</p>
+                    <p><strong>1. <code>Sources/AgentClientMacShell/AppShell.swift</code></strong><br>
+                    新增的 <code>sidebarVisible</code> 状态管理正确，但缺少对窗口 resizing 的响应式处理。建议添加 <code>.frame(minWidth: 960, minHeight: 600)</code>。</p>
+                    <p><strong>2. <code>Sources/AgentClientCore/CodexRuntimeBridge.swift</code></strong><br>
+                    line 89 的 <code>try await</code> 可能抛出 <code>CodexNotInstalled</code>，当前没有 fallback UI 提示。</p>
+                    <p><strong>3. 测试覆盖</strong><br>
+                    新增的 <code>SessionCache</code> 没有对应的单元测试。</p>
+                    <pre>建议添加的测试用例：
+  - testCacheInsertAndRetrieve
+  - testCacheEvictionOnLimit
+  - testCachePersistenceAcrossSessions</pre>
+                    <p>要我帮你补充这些测试吗？</p>
+                  </div>
+                </div>
+              </div>
+              <div class="message">
+                <div class="message-avatar user">你</div>
+                <div class="message-content">
+                  <div class="message-role user-role">你</div>
+                  <div class="message-text">
+                    <p>好，帮我补充测试，顺便把 AppShell 的窗口尺寸限制加上。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="message">
+                <div class="message-avatar assistant">&#8984;</div>
+                <div class="message-content">
+                  <div class="message-role">Codex</div>
+                  <div class="message-text">
+                    <p>好的，我来处理这两件事：</p>
+                    <p><strong>1. 窗口尺寸限制</strong><br>
+                    在 <code>AppShell.swift</code> 追加 <code>.frame(minWidth: 960, minHeight: 600)</code>。</p>
+                    <p><strong>2. SessionCache 测试</strong><br>
+                    创建 <code>Tests/AgentClientCoreTests/SessionCacheTests.swift</code>，包含三个测试用例。</p>
+                    <p>开始执行&#8230;</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="composer-area">
+          <div class="composer-box">
+            <div class="composer-resize-zone"></div>
+            <textarea class="composer-textarea" placeholder="提出后续修改要求&#8230;" rows="1"></textarea>
+            <div class="composer-toolbar">
+              <button class="workspace-picker" onclick="alert('选择工作区')" title="选择工作区">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <span class="workspace-path">macrelay-project</span>
+              </button>
+              <span class="composer-chip">Act <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <span class="composer-chip">Sonnet <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <span class="composer-chip">medium <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <button class="composer-send" disabled>&#8593;</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ─── INSPECTOR ─────────────────────────────────────────── -->
+      <aside class="inspector">
+        <div class="inspector-header">文件与状态</div>
+        <div class="inspector-content">
+
+          <div class="inspector-section">
+            <div class="inspector-section-header" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden;this.querySelector('.chevron').classList.toggle('open')">
+              <span class="chevron open">&#9654;</span>
+              <span class="section-title">变更文件</span>
+              <span class="badge">3</span>
+            </div>
+            <div class="inspector-section-body">
+              <div class="file-row">
+                <div class="file-icon">S</div>
+                <div class="file-info">
+                  <div class="file-path">AppShell.swift</div>
+                  <div class="file-status">修改 &#183; 未审核</div>
+                </div>
+                <div class="file-actions">
+                  <button class="file-action-btn approve" title="批准">&#10003;</button>
+                  <button class="file-action-btn discard" title="丢弃">&#10005;</button>
+                </div>
+              </div>
+              <div class="file-row">
+                <div class="file-icon">B</div>
+                <div class="file-info">
+                  <div class="file-path">CodexRuntimeBridge.swift</div>
+                  <div class="file-status">修改 &#183; 未审核</div>
+                </div>
+                <div class="file-actions">
+                  <button class="file-action-btn approve" title="批准">&#10003;</button>
+                  <button class="file-action-btn discard" title="丢弃">&#10005;</button>
+                </div>
+              </div>
+              <div class="file-row">
+                <div class="file-icon">T</div>
+                <div class="file-info">
+                  <div class="file-path">SessionCacheTests.swift</div>
+                  <div class="file-status">新增 &#183; 未审核</div>
+                </div>
+                <div class="file-actions">
+                  <button class="file-action-btn approve" title="批准">&#10003;</button>
+                  <button class="file-action-btn discard" title="丢弃">&#10005;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="inspector-section">
+            <div class="inspector-section-header" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden;this.querySelector('.chevron').classList.toggle('open')">
+              <span class="chevron">&#9654;</span>
+              <span class="section-title">差异预览</span>
+            </div>
+            <div class="inspector-section-body" hidden>
+              <div class="diff-preview">
+                <div class="diff-line add"><span class="prefix">+</span><span>@available(macOS 14, *)</span></div>
+                <div class="diff-line ctx"><span class="prefix"></span><span></span></div>
+                <div class="diff-line add"><span class="prefix">+</span><span>extension MacShellView {</span></div>
+                <div class="diff-line add"><span class="prefix">+</span><span>  .frame(minWidth: 960, minHeight: 600)</span></div>
+                <div class="diff-line add"><span class="prefix">+</span><span>}</span></div>
+                <div class="diff-line ctx"><span class="prefix"></span><span></span></div>
+                <div class="diff-line del"><span class="prefix">-</span><span>// TODO: add min size</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="inspector-section">
+            <div class="inspector-section-header" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden;this.querySelector('.chevron').classList.toggle('open')">
+              <span class="chevron open">&#9654;</span>
+              <span class="section-title">运行状态</span>
+            </div>
+            <div class="inspector-section-body">
+              <div class="status-row">
+                <span class="status-dot green"></span>
+                <span class="status-label">Codex 运行中</span>
+                <span class="status-value mono">v0.8.3</span>
+              </div>
+              <div class="status-row">
+                <span class="status-dot blue"></span>
+                <span class="status-label">Relay</span>
+                <span class="status-value mono">序列 142</span>
+              </div>
+              <div class="status-row">
+                <span class="status-dot green"></span>
+                <span class="status-label">模型</span>
+                <span class="status-value">Claude Sonnet</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </aside>
+    </div>
+
+
+  </div>
+
+  <script>
+    function setTheme(mode) {
+      document.documentElement.setAttribute('data-theme', mode);
+      document.getElementById('themeLight').classList.toggle('active', mode === 'light');
+      document.getElementById('themeDark').classList.toggle('active', mode === 'dark');
+    }
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      setTheme(current === 'dark' ? 'light' : 'dark');
+    }
+
+    function toggleSidebar() {
+      const sidebar = document.querySelector('.sidebar');
+      const titlebar = document.querySelector('.titlebar');
+      const titlebarS1 = document.querySelector('.titlebar-s1');
+      const btn = document.querySelector('.sidebar-toggle');
+      const isCollapsed = sidebar.classList.toggle('collapsed');
+      titlebarS1.classList.toggle('collapsed');
+      titlebar.classList.toggle('sidebar-collapsed');
+      btn.classList.toggle('collapsed');
+      btn.title = isCollapsed ? '展开侧栏' : '收起侧栏';
+    }
+
+    function toggleInspector() {
+      const inspector = document.querySelector('.inspector');
+      const titlebar = document.querySelector('.titlebar');
+      const titlebarS3 = document.querySelector('.titlebar-s3');
+      const btn = document.querySelector('.inspector-toggle');
+      const isCollapsed = inspector.classList.toggle('collapsed');
+      titlebarS3.classList.toggle('collapsed');
+      titlebar.classList.toggle('inspector-collapsed');
+      btn.classList.toggle('collapsed');
+      btn.title = isCollapsed ? '展开面板' : '收起面板';
+    }
+
+    function togglePhonePopover() {
+      const popover = document.getElementById('phonePopover');
+      const overlay = document.getElementById('phoneOverlay');
+      const isOpen = popover.classList.contains('show');
+      if (isOpen) {
+        closePhonePopover();
+      } else {
+        popover.classList.add('show');
+        overlay.classList.add('show');
+      }
+    }
+
+    function closePhonePopover() {
+      document.getElementById('phonePopover').classList.remove('show');
+      document.getElementById('phoneOverlay').classList.remove('show');
+    }
+
+    function toggleSettings() {
+      closePhonePopover();
+      const popover = document.getElementById('settingsPopover');
+      const overlay = document.getElementById('settingsOverlay');
+      const isOpen = popover.classList.contains('show');
+      if (isOpen) {
+        closeSettings();
+      } else {
+        popover.classList.add('show');
+        overlay.classList.add('show');
+      }
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsPopover').classList.remove('show');
+      document.getElementById('settingsOverlay').classList.remove('show');
+    }
+
+    function copyURI(btn) {
+      const uri = 'macrelay://claim/7a8f2c4e-9b1d-4f63-a5c8-e3f1b2d7a90c';
+      navigator.clipboard?.writeText(uri);
+      btn.textContent = '已复制';
+      setTimeout(() => { btn.textContent = '复制 URI'; }, 2000);
+    }
+
+    function showEmptyState() {
+      document.getElementById('emptyState').style.display = 'flex';
+      document.getElementById('demoMessages').style.display = 'none';
+      document.querySelector('.composer-send').disabled = true;
+      document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+      document.querySelector('.main-area').classList.add('centered');
+    }
+
+    function showDemoMessages() {
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('demoMessages').style.display = 'block';
+      document.querySelector('.composer-send').disabled = false;
+      document.querySelector('.main-area').classList.remove('centered');
+    }
+
+    // Composer resize handle drag
+    (function() {
+      const handle = document.querySelector('.composer-resize-zone');
+      const box = document.querySelector('.composer-box');
+      const textarea = document.querySelector('.composer-textarea');
+      if (!handle || !textarea) return;
+
+      let isDragging = false;
+      let startY, startHeight;
+
+      handle.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        startY = e.clientY;
+        startHeight = textarea.offsetHeight;
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        const delta = e.clientY - startY;
+        const newHeight = Math.max(48, Math.min(320, startHeight - delta));
+        textarea.style.height = newHeight + 'px';
+      });
+
+      document.addEventListener('mouseup', function() {
+        if (!isDragging) return;
+        isDragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      });
+    })();
+
+    // Close popovers on Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { closePhonePopover(); closeSettings(); }
+    });
+  </script>
+</body>
+</html>
