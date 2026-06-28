@@ -39,6 +39,9 @@ final class ClaudeCodeRuntime: AgentRuntime {
     private var writer: JSONRPCWriter?
     private var pendingRequests: [Int: PendingRequest] = [:]
     private var pendingDraft: DraftParams?
+    private var lastStderr = ""
+    private var pendingResumeThreadID: String?
+    private var restoredSessionIDs = Set<String>()
     private let reducer = SessionStateReducer()
     private var nextId = 1
 
@@ -58,7 +61,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
     }
 
     private enum PendingRequestKind: String {
-        case initialize, modelList, threadStart, turnStart, settingsUpdate
+        case initialize, modelList, threadStart, threadResume, turnStart, settingsUpdate
     }
 
     var isProcessingTurn: Bool { pendingDraft != nil }
@@ -85,13 +88,14 @@ final class ClaudeCodeRuntime: AgentRuntime {
     override func startAppServer(cwd: String) throws {
         guard cliInstalled else {
             statusText = "Claude Code CLI not found"
-            throw MacRelayBridgeError.sessionNotFound("Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-code")
+            throw MacRelayBridgeError.runtimeUnavailable("Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-code")
         }
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["npx", "claude-app-server"]
+        proc.arguments = ["npx", "--yes", "claude-app-server"]
         proc.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        lastStderr = ""
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
@@ -120,15 +124,25 @@ final class ClaudeCodeRuntime: AgentRuntime {
             let data = handle.availableData
             guard let self, let line = String(data: data, encoding: .utf8), !line.isEmpty else { return }
             Task { @MainActor in
-                self.statusText = "stderr: \(line.trimmingCharacters(in: .whitespacesAndNewlines))"
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                self.lastStderr = trimmed
+                self.addStep(.stderr, detail: trimmed)
+                self.statusText = "stderr: \(trimmed)"
             }
         }
 
-        proc.terminationHandler = { [weak self] _ in
+        proc.terminationHandler = { [weak self] proc in
             Task { @MainActor in
+                if self?.pendingDraft != nil {
+                    let detail = self?.lastStderr.isEmpty == false ? " \(self?.lastStderr ?? "")" : ""
+                    self?.failPendingDraft("Claude app-server exited before the turn could start (code \(proc.terminationStatus)).\(detail)")
+                }
                 self?.process = nil
                 self?.isAppServerRunning = false
-                self?.statusText = "Claude app-server exited"
+                if self?.statusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+                    self?.statusText = "Claude app-server exited"
+                }
             }
         }
 
@@ -177,6 +191,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
             approvalPolicy: approvalPolicy
         )
         latestTurnID = nil
+        resetSteps()
 
         if !isAppServerRunning {
             try startAppServer(cwd: cwd)
@@ -186,6 +201,8 @@ final class ClaudeCodeRuntime: AgentRuntime {
             statusText = "Initializing → will auto-send..."
         } else if currentThreadID == nil {
             try startThread(draft: pendingDraft!)
+        } else if let pendingResumeThreadID {
+            try resumeThread(threadID: pendingResumeThreadID)
         } else {
             // Wrap in do/catch so pendingDraft is cleared on error,
             // preventing "previous turn still processing" lockout on
@@ -220,7 +237,25 @@ final class ClaudeCodeRuntime: AgentRuntime {
             throw MacRelayBridgeError.sessionNotFound("Session \(sessionID) not found")
         }
         selectedSessionID = sessionID
+        currentThreadID = sessionID
+        pendingResumeThreadID = restoredSessionIDs.contains(sessionID) ? sessionID : nil
+        latestTurnID = nil
         statusText = "session.select sessionID=\(sessionID)"
+    }
+
+    override func rememberSession(sessionID: String, cwd: String?, title: String?, status: String?) {
+        if !sessions.contains(where: { $0.sessionID == sessionID }) {
+            sessions.append(RelaySessionInfoPayload(
+                sessionID: sessionID,
+                cwd: cwd,
+                model: nil,
+                effort: nil,
+                status: status ?? "saved",
+                createdAt: nil,
+                title: title
+            ))
+        }
+        restoredSessionIDs.insert(sessionID)
     }
 
     // MARK: - Private
@@ -233,6 +268,15 @@ final class ClaudeCodeRuntime: AgentRuntime {
             "sessionStartSource": "startup"
         ])
         pendingRequests[id] = PendingRequest(kind: .threadStart, createdAt: Date())
+    }
+
+    private func resumeThread(threadID: String) throws {
+        let id = nextId; nextId += 1
+        try sendRequest(id: id, method: "thread/resume", params: [
+            "thread_id": threadID
+        ])
+        pendingRequests[id] = PendingRequest(kind: .threadResume, createdAt: Date())
+        statusText = "thread/resume requested"
     }
 
     private func startTurnFromDraft() throws {
@@ -294,6 +338,9 @@ final class ClaudeCodeRuntime: AgentRuntime {
                 let method = json["method"] as? String ?? ""
                 let params = json["params"] as? [String: Any]
                 event = CodexAppServerEvent.serverRequest(id: id, method: method, params: params)
+                if method.contains("requestApproval") {
+                    addStep(.approval, detail: params?["command"] as? String ?? params?["reason"] as? String, status: .active)
+                }
             } else {
                 // Notification
                 let method = json["method"] as? String ?? ""
@@ -323,7 +370,9 @@ final class ClaudeCodeRuntime: AgentRuntime {
         if let error {
             statusText = "response \(id) error: \(error)"
             isInitializing = false
-            if pending.kind == .threadStart || pending.kind == .turnStart || pending.kind == .initialize || pending.kind == .modelList {
+            updateLastStep(status: .failed)
+            addStep(.error, detail: "\(error)", status: .failed)
+            if pending.kind == .threadStart || pending.kind == .threadResume || pending.kind == .turnStart || pending.kind == .initialize || pending.kind == .modelList {
                 pendingDraft = nil
             }
             let errorDict = error as? [String: Any]
@@ -339,6 +388,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         switch pending.kind {
         case .initialize:
             statusText = "initialized → model/list"
+            addStep(.initialize)
             try? writer?.notification(method: "initialized", params: [:])
             let mid = nextId; nextId += 1
             try? sendRequest(id: mid, method: "model/list", params: [:])
@@ -346,6 +396,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         case .modelList:
             statusText = "model/list received"
+            addStep(.modelList)
             // Don't overwrite models from settings with claude-app-server's hardcoded list
             if modelNames.isEmpty {
                 let models = result?["models"] as? [[String: Any]] ?? []
@@ -357,6 +408,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         case .threadStart:
             statusText = "thread/start response"
+            addStep(.threadStart)
             // claude-app-server returns thread_id (snake_case), Codex returns id
             if let threadID = result?["thread_id"] as? String
                 ?? result?["id"] as? String
@@ -377,8 +429,27 @@ final class ClaudeCodeRuntime: AgentRuntime {
                 }
             }
 
+        case .threadResume:
+            statusText = "thread/resume response"
+            addStep(.threadStart, detail: "resume", status: .active)
+            pendingResumeThreadID = nil
+            if let threadID = result?["thread_id"] as? String
+                ?? result?["id"] as? String
+                ?? (result?["thread"] as? [String: Any])?["id"] as? String {
+                currentThreadID = threadID
+                restoredSessionIDs.remove(threadID)
+            }
+            if pendingDraft != nil {
+                do {
+                    try startTurnFromDraft()
+                } catch {
+                    failPendingDraft("Failed to start turn after resume: \(error)")
+                }
+            }
+
         case .turnStart:
             statusText = "turn active"
+            addStep(.turnStart, status: .active)
             if let turnID = result?["turn_id"] as? String
                 ?? result?["id"] as? String
                 ?? (result?["turn"] as? [String: Any])?["id"] as? String {
@@ -412,6 +483,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         case "turn/started":
             let turnID = params?["turn_id"] as? String ?? params?["id"] as? String ?? (params?["turn"] as? [String: Any])?["id"] as? String
             if let turnID { latestTurnID = turnID }
+            addStep(.assistantResponse, status: .active)
             if let threadID = currentThreadID,
                let idx = sessions.firstIndex(where: { $0.sessionID == threadID }),
                (sessions[idx].title ?? "").isEmpty,
@@ -421,10 +493,14 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         case "turn/completed":
             statusText = "turn completed"
+            updateLastStep(status: .completed)
+            addStep(.turnCompleted)
             pendingDraft = nil
 
         case "turn/error":
             statusText = "turn error"
+            updateLastStep(status: .failed)
+            addStep(.error, detail: params?["error"] as? String, status: .failed)
             pendingDraft = nil
 
         case "item/agentMessage/delta":
@@ -432,6 +508,10 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         case "item/progress":
             break // normalizedEvent maps this to item/agentMessage/delta
+
+        case "error":
+            statusText = "error"
+            addStep(.error, detail: params?["error"] as? String, status: .failed)
 
         default:
             statusText = "notification: \(method)"
@@ -471,14 +551,15 @@ final class ClaudeCodeRuntime: AgentRuntime {
     private func firePendingDraft() {
         guard let draft = pendingDraft else { return }
         do {
-            if currentThreadID != nil {
+            if let pendingResumeThreadID {
+                try resumeThread(threadID: pendingResumeThreadID)
+            } else if currentThreadID != nil {
                 try startTurnFromDraft()
             } else {
                 try startThread(draft: draft)
             }
         } catch {
-            pendingDraft = nil
-            statusText = "failed to start thread: \(error)"
+            failPendingDraft("Failed to start thread: \(error)")
         }
     }
 
@@ -501,13 +582,24 @@ final class ClaudeCodeRuntime: AgentRuntime {
             try sendRequest(id: id, method: "turn/start", params: params)
             pendingRequests[id] = PendingRequest(kind: .turnStart, createdAt: Date())
         } catch {
-            pendingDraft = nil
-            statusText = "failed to start turn: \(error)"
+            failPendingDraft("Failed to start turn: \(error)")
         }
+    }
+
+    private func failPendingDraft(_ message: String) {
+        pendingDraft = nil
+        statusText = message
+        apply(.error(params: [
+            "error": [
+                "message": message,
+                "codexErrorInfo": "runtime_start_failed"
+            ]
+        ]))
     }
 
     private func recordSession(threadID: String, params: [String: Any]?) {
         let thread = params?["thread"] as? [String: Any] ?? params
+        restoredSessionIDs.remove(threadID)
         if !sessions.contains(where: { $0.sessionID == threadID }) {
             let newSession = RelaySessionInfoPayload(
                 sessionID: threadID,
@@ -527,6 +619,12 @@ final class ClaudeCodeRuntime: AgentRuntime {
         var nextSnapshot = snapshot
         for action in actions {
             reducer.reduce(&nextSnapshot, action: action)
+            // Capture file change events as steps
+            if case let .fileChangeUpdated(change) = action {
+                let path = change.path ?? change.itemID ?? "unknown"
+                let kind = change.changeKind ?? "changed"
+                addStep(.fileChange, detail: "\(kind) \(path)")
+            }
         }
         snapshot = nextSnapshot
     }

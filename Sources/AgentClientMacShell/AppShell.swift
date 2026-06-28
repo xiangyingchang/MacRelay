@@ -6,7 +6,10 @@ struct MacShellView: View {
     @State private var showPhonePopover = false
     @State private var showSettingsPopover = false
     @AppStorage("themeMode") private var themeMode: String = "dark"
-    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
+    // Persisted target — only written when a drag ends
+    @AppStorage("sidebarWidth") private var storedSidebarWidth: Double = 240
+    // Live width during drag — uses @State so drag events never go through UserDefaults
+    @State private var sidebarWidth: Double = 240
     @State private var inspectorWidth: Double = 290
     private var isLightTheme: Bool { themeMode == "light" }
     private let minSidebar: Double = 180
@@ -27,12 +30,20 @@ struct MacShellView: View {
             } else if sidebarVisible {
                 Sidebar(viewModel: viewModel, toggleSidebar: { sidebarVisible.toggle() }, showPhonePopover: $showPhonePopover, showSettingsPopover: $showSettingsPopover)
                     .frame(width: sidebarWidth)
-                ResizableDivider(dragWidth: $sidebarWidth, min: minSidebar, max: maxSidebar)
+                ResizableDivider(
+                    dragWidth: $sidebarWidth,
+                    min: minSidebar,
+                    max: maxSidebar,
+                    onDragEnded: { storedSidebarWidth = $0 }
+                )
+                .frame(width: 6)
             } else {
                 CollapsedSidebar(toggleSidebar: { sidebarVisible.toggle() })
             }
             MainWorkspace(viewModel: viewModel)
+                .layoutPriority(1)
         }
+        .onAppear { sidebarWidth = storedSidebarWidth }
         .background(Theme.bg)
         .preferredColorScheme(isLightTheme ? .light : .dark)
         .id(isLightTheme ? "light" : "dark")

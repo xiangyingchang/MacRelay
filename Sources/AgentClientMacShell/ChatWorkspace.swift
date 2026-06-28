@@ -85,6 +85,12 @@ struct MessageRow: View {
                 } else {
                     MarkdownText(message.text)
                 }
+
+                // Agent process steps (collapsible, below assistant text)
+                if !message.steps.isEmpty, message.role != "User" {
+                    MessageStepsView(steps: message.steps)
+                        .padding(.top, 4)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -146,6 +152,137 @@ struct MarkdownText: View {
                 .foregroundStyle(Theme.fg)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+// MARK: - Agent Process Steps
+
+struct StepRow: View {
+    let step: TurnStep
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: step.icon)
+                .font(.system(size: 9))
+                .foregroundStyle(iconColor)
+                .frame(width: 14)
+
+            Text(step.title)
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.fg)
+                .lineLimit(1)
+
+            if let detail = step.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(statusLabel)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(statusColor)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(statusColor.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+    }
+
+    private var iconColor: Color {
+        switch step.status {
+        case .completed: return .green
+        case .active: return Theme.accent
+        case .failed: return .red
+        case .pending: return Theme.muted
+        }
+    }
+
+    private var statusColor: Color {
+        switch step.status {
+        case .completed: return .green
+        case .active: return Theme.accent
+        case .failed: return .red
+        case .pending: return Theme.muted
+        }
+    }
+
+    private var statusLabel: String {
+        switch step.status {
+        case .completed: return "Done"
+        case .active: return "In Progress"
+        case .failed: return "Failed"
+        case .pending: return "Waiting"
+        }
+    }
+}
+
+struct MessageStepsView: View {
+    let steps: [TurnStep]
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.easeOut(duration: 0.12), value: isExpanded)
+
+                    Text("Agent Process")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.muted)
+
+                    Text("(\(steps.count))")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.muted.opacity(0.7))
+
+                    Spacer()
+
+                    // Show a summary of completed vs active
+                    let done = steps.filter { $0.status == .completed }.count
+                    if done < steps.count {
+                        Text("\(done)/\(steps.count)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Theme.accent)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.green)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .background(Theme.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radiusSm)
+                    .stroke(Theme.border.opacity(0.5), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(steps) { step in
+                        StepRow(step: step)
+                    }
+                }
+                .padding(.top, 4)
+                .padding(.leading, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
 }
@@ -223,19 +360,18 @@ struct Composer: View {
     var body: some View {
         VStack(spacing: 0) {
             // Text editor
-            TextEditor(text: $viewModel.draftText)
-                .font(.system(size: 14))
-                .foregroundStyle(Theme.fg)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
+            PlainComposerTextEditor(
+                text: $viewModel.draftText,
+                onEditingActivity: { hasStartedEditing = true }
+            )
                 .padding(.horizontal, 12)
-                .padding(.top, 9)
+                .padding(.top, 11)
                 .frame(height: editorHeight)
                 .overlay(alignment: .topLeading) {
                     Text("提出后续修改要求")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.muted.opacity(0.7))
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 12)
                         .padding(.top, 11)
                         .allowsHitTesting(false)
                         .opacity(viewModel.draftText.isEmpty && !hasStartedEditing ? 1 : 0)
@@ -248,9 +384,6 @@ struct Composer: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { hasStartedEditing = false }
                     }
                 }
-                .background(
-                    KeyDownHandler(onKeyDown: { hasStartedEditing = true })
-                )
 
             // Resize handle (separate so it doesn't interfere with TextEditor)
             ResizeHandleView(
@@ -319,34 +452,91 @@ struct Composer: View {
     }
 }
 
-// MARK: - KeyDownHandler (detects IME/any keyboard input before text commit)
+// MARK: - Composer Text Editor
 
 #if os(macOS)
 import AppKit
 
-struct KeyDownHandler: NSViewRepresentable {
-    let onKeyDown: () -> Void
+struct PlainComposerTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    let onEditingActivity: () -> Void
 
     func makeNSView(context: Context) -> NSView {
-        let view = KeyCaptureView(onKeyDown: onKeyDown)
-        return view
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+
+        let textView = ComposerNSTextView()
+        textView.delegate = context.coordinator
+        textView.onEditingActivity = onEditingActivity
+        textView.string = text
+        textView.font = .systemFont(ofSize: 14)
+        textView.textColor = NSColor(Theme.fg)
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = .zero
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        return scrollView
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let scrollView = nsView as? NSScrollView,
+              let textView = scrollView.documentView as? ComposerNSTextView else { return }
+        if textView.string != text {
+            textView.string = text
+        }
+        textView.onEditingActivity = onEditingActivity
+        textView.textColor = NSColor(Theme.fg)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onEditingActivity: onEditingActivity)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var text: String
+        var onEditingActivity: () -> Void
+        weak var textView: NSTextView?
+
+        init(text: Binding<String>, onEditingActivity: @escaping () -> Void) {
+            self._text = text
+            self.onEditingActivity = onEditingActivity
+        }
+
+        func textDidBeginEditing(_ notification: Notification) {
+            onEditingActivity()
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text = textView.string
+            onEditingActivity()
+        }
+    }
 }
 
-class KeyCaptureView: NSView {
-    let onKeyDown: () -> Void
-    init(onKeyDown: @escaping () -> Void) {
-        self.onKeyDown = onKeyDown
-        super.init(frame: .zero)
-    }
-    required init?(coder: NSCoder) { nil }
-    override var acceptsFirstResponder: Bool { false }
+final class ComposerNSTextView: NSTextView {
+    var onEditingActivity: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        onKeyDown()
+        onEditingActivity?()
         super.keyDown(with: event)
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        onEditingActivity?()
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
     }
 }
 #endif

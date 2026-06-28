@@ -24,6 +24,7 @@ open class AgentRuntime: ObservableObject {
     @Published open var isInitialized = false
     @Published open var isInitializing = false
     @Published open var rateLimitText = ""
+    @Published open var currentSteps: [TurnStep] = []
     open var isReadyForAppServer: Bool { false }
 
     open func refreshDetection() {}
@@ -43,6 +44,17 @@ open class AgentRuntime: ObservableObject {
 
     public init() {}
 
+    open func resetSteps() { currentSteps = [] }
+
+    open func addStep(_ kind: TurnStepKind, detail: String? = nil, status: StepStatus = .completed) {
+        currentSteps.append(TurnStep(kind: kind, detail: detail, status: status))
+    }
+
+    open func updateLastStep(status: StepStatus) {
+        guard !currentSteps.isEmpty else { return }
+        currentSteps[currentSteps.count - 1].status = status
+    }
+
     open func enqueueDraft(
         cwd: String, text: String, model: String?, effort: String?,
         threadSandbox: String, turnSandbox: String, approvalPolicy: String
@@ -56,6 +68,7 @@ open class AgentRuntime: ObservableObject {
 
     open func resolveApproval(requestID: Int, decision: String) throws { fatalError("abstract") }
     open func listSessions() -> [RelaySessionInfoPayload] { [] }
+    open func rememberSession(sessionID: String, cwd: String?, title: String?, status: String?) {}
     open func stopSession() throws {}
     open func selectSession(sessionID: String) throws {}
     open func clearCurrentThread() {}

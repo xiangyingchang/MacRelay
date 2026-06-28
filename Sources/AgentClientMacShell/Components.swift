@@ -178,37 +178,129 @@ struct Rule: View {
     }
 }
 
-// MARK: - Resizable Column Divider
+// MARK: - Resizable Column Divider (AppKit)
 
 /// A thin vertical strip that acts as a drag handle between columns.
-/// Place as an `.overlay` on the column whose width should be resizable.
-struct ResizableDivider: View {
+//
+//  Uses NSViewRepresentable + raw AppKit mouse tracking instead of SwiftUI's
+//  DragGesture, because the divider view *moves* as the sidebar width changes.
+//  SwiftUI DragGesture on a moving view can desync the coordinate space and
+//  cause the mouse cursor to visually detach from the divider edge.
+//
+//  This NSView approach:
+//    1. Reads `event.locationInWindow` — the ONLY stable coordinate frame.
+//    2. Computes delta between CONSECUTIVE events, not cumulative-from-start.
+//    3. Bypasses SwiftUI's gesture pipeline entirely — every frame the mouse
+//       moves, the width updates on that exact delta.
+//
+struct ResizableDivider: NSViewRepresentable {
     @Binding var dragWidth: Double
     let min: Double
     let max: Double
-    var edge: Edge = .trailing
+    var onDragEnded: ((Double) -> Void)? = nil
 
-    var body: some View {
-        // Invisible 6px hit area — no visible line
-        Color.clear
-            .frame(width: 6)
-            .contentShape(Rectangle())
-        .onHover { inside in
-            if inside {
-                NSCursor.resizeLeftRight.push()
-            } else {
-                NSCursor.pop()
-            }
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        DividerNSView(min: min, max: max,
+                      dragWidth: $dragWidth,
+                      onDragEnded: onDragEnded)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // NSView owns all tracking state; nothing to sync from SwiftUI.
+    }
+
+    class Coordinator {}
+}
+
+// MARK: - DividerNSView
+
+private final class DividerNSView: NSView {
+    let min: Double
+    let max: Double
+    @Binding var dragWidth: Double
+    var onDragEnded: ((Double) -> Void)?
+    private var lastGlobalX: CGFloat = 0
+    private var trackingArea: NSTrackingArea?
+    private var cursorPushed = false
+
+    init(min: Double, max: Double,
+         dragWidth: Binding<Double>,
+         onDragEnded: ((Double) -> Void)?) {
+        self.min = min
+        self.max = max
+        self._dragWidth = dragWidth
+        self.onDragEnded = onDragEnded
+        super.init(frame: .zero)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    // ── Layout ──────────────────────────────────────────────
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 6, height: NSView.noIntrinsicMetric)
+    }
+
+    // ── Hit-testing ──────────────────────────────────────────
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+        updateTrackingAreas()
+    }
+
+    // ── Cursor (NSTrackingArea — works reliably in SwiftUI-hosted views) ──
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let ta = trackingArea {
+            removeTrackingArea(ta)
         }
-        .gesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                .onChanged { value in
-                    let delta = edge == .trailing
-                        ? value.translation.width
-                        : -value.translation.width
-                    dragWidth = Swift.max(self.min, Swift.min(self.max, self.dragWidth + delta))
-                }
+        trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
         )
+        addTrackingArea(trackingArea!)
+    }
+
+    override func mouseEntered(with event: NSEvent) { pushCursor() }
+    override func mouseExited(with event: NSEvent) { popCursor() }
+
+    override func mouseDown(with event: NSEvent) {
+        pushCursor()
+        lastGlobalX = event.locationInWindow.x
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        // window coordinate is the ONLY stable reference frame
+        let delta = event.locationInWindow.x - lastGlobalX
+        dragWidth = Swift.max(min, Swift.min(max, dragWidth + delta))
+        lastGlobalX = event.locationInWindow.x
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onDragEnded?(dragWidth)
+    }
+
+    // ── Cursor helpers ───────────────────────────────────────
+    private func pushCursor() {
+        guard !cursorPushed else { return }
+        NSCursor.resizeLeftRight.push()
+        cursorPushed = true
+    }
+
+    private func popCursor() {
+        guard cursorPushed else { return }
+        NSCursor.pop()
+        cursorPushed = false
     }
 }
 

@@ -6,11 +6,13 @@ import Foundation
 public enum MacRelayBridgeError: Error, LocalizedError {
     case turnInProgress(String)
     case sessionNotFound(String)
+    case runtimeUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
         case .turnInProgress(let msg): return msg
         case .sessionNotFound(let id): return "Session not found: \(id)"
+        case .runtimeUnavailable(let msg): return msg
         }
     }
 }
@@ -101,7 +103,7 @@ final class CodexRuntime: AgentRuntime {
     override func startAppServer(cwd: String) throws {
         guard let command = detection.executablePath else {
             statusText = "Codex CLI not installed"
-            return
+            throw MacRelayBridgeError.runtimeUnavailable("Codex CLI not found. Install Codex CLI or refresh detection before sending.")
         }
 
         let nextClient = CodexAppServerClient(codexCommand: command, cwd: cwd)
@@ -415,6 +417,9 @@ final class CodexRuntime: AgentRuntime {
 
         #if os(macOS)
         case let .exit(code, _):
+            if pendingDraft != nil {
+                failPendingDraft("Codex app-server exited before the turn could start (code \(code)).")
+            }
             client = nil
             isAppServerRunning = false
             isInitialized = false
@@ -527,7 +532,7 @@ final class CodexRuntime: AgentRuntime {
                 try startThread(draft: draft)
             }
         } catch {
-            statusText = "failed to start thread: \(error)"
+            failPendingDraft("Failed to start thread: \(error)")
         }
     }
 
@@ -560,8 +565,7 @@ final class CodexRuntime: AgentRuntime {
                 sandboxPolicy: draft.turnSandbox
             )
         } catch {
-            pendingDraft = nil
-            statusText = "failed to start turn: \(error)"
+            failPendingDraft("Failed to start turn: \(error)")
         }
     }
 
@@ -586,6 +590,17 @@ final class CodexRuntime: AgentRuntime {
             pendingDraft = nil
             throw error
         }
+    }
+
+    private func failPendingDraft(_ message: String) {
+        pendingDraft = nil
+        statusText = message
+        apply(.error(params: [
+            "error": [
+                "message": message,
+                "codexErrorInfo": "runtime_start_failed"
+            ]
+        ]))
     }
 
     // MARK: - Private: formatting
@@ -635,6 +650,20 @@ final class CodexRuntime: AgentRuntime {
 
     override func listSessions() -> [RelaySessionInfoPayload] {
         sessions
+    }
+
+    override func rememberSession(sessionID: String, cwd: String?, title: String?, status: String?) {
+        if !sessions.contains(where: { $0.sessionID == sessionID }) {
+            sessions.append(RelaySessionInfoPayload(
+                sessionID: sessionID,
+                cwd: cwd,
+                model: nil,
+                effort: nil,
+                status: status ?? "saved",
+                createdAt: nil,
+                title: title
+            ))
+        }
     }
 
     override func stopSession() throws {

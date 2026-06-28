@@ -161,11 +161,45 @@ final class SessionJournal {
         return messages
     }
 
+    // MARK: - JSON Structured Persistence (messages + steps)
+
+    /// Save messages (with steps) as structured JSON alongside the log file.
+    func saveStructuredMessages(sessionID: String, messages: [ConversationMessage]) {
+        guard !workspacePath.isEmpty else { return }
+        let path = workspacePath + "/.macrelay/sessions/" + sessionID + ".json"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(messages) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// Load messages (with steps) from structured JSON.
+    func loadStructuredMessages(sessionID: String) -> [ConversationMessage]? {
+        guard !workspacePath.isEmpty else { return nil }
+        let path = workspacePath + "/.macrelay/sessions/" + sessionID + ".json"
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        return try? JSONDecoder().decode([ConversationMessage].self, from: data)
+    }
+
+    /// Load archived session messages, preferring JSON format with steps.
+    func loadArchivedMessagesWithSteps(sessionID: String) -> [ConversationMessage] {
+        // Try JSON first (includes steps)
+        if let structured = loadStructuredMessages(sessionID: sessionID) {
+            return structured
+        }
+        // Fallback: parse from markdown log (steps will be empty)
+        let logs = loadArchivedSessionMessages(sessionID: sessionID)
+        return logs.map { ConversationMessage(role: $0.role, text: $0.text) }
+    }
+
     /// Delete an archived session log from disk.
     func deleteArchivedSession(sessionID: String) {
         guard !workspacePath.isEmpty else { return }
-        let path = workspacePath + "/.macrelay/sessions/" + sessionID + ".log"
-        try? fileManager.removeItem(atPath: path)
+        let logPath = workspacePath + "/.macrelay/sessions/" + sessionID + ".log"
+        try? fileManager.removeItem(atPath: logPath)
+        let jsonPath = workspacePath + "/.macrelay/sessions/" + sessionID + ".json"
+        try? fileManager.removeItem(atPath: jsonPath)
     }
 
     /// Append a summary of today's work to memory.md.

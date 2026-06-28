@@ -44,6 +44,13 @@ final class MacShellViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        runtime.$currentSteps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] steps in
+                self?.handleStepUpdate(steps)
+            }
+            .store(in: &cancellables)
+
         runtime.onEventReceived = { [weak self] event in
             Task { @MainActor in
                 self?.ingestRelayEvent(event)
@@ -53,11 +60,10 @@ final class MacShellViewModel: ObservableObject {
         runtime.onThreadStarted = { [weak self] threadID in
             Task { @MainActor in
                 guard let self else { return }
-                // If workspace already has sessions, auto-save new ones to workspace
-                if !self.workspaceSessions.isEmpty {
+                self.bindCurrentMessages(toSession: threadID)
+                if self.continuingArchivedSessionID != nil || !self.workspaceSessions.isEmpty {
                     self.saveSessionToWorkspace(id: threadID)
                 }
-                self.bindCurrentMessages(toSession: threadID)
             }
         }
     }
@@ -114,6 +120,7 @@ final class MacShellViewModel: ObservableObject {
     @Published var draftText = ""
     @Published var selectedFileID = "mac-shell"
     @Published var commandApprovalVisible = true
+    @Published private var archivedSessionItems: [SessionListItem] = []
     @Published private(set) var commandLog: [RelayCommandLogEntry] = [
         RelayCommandLogEntry(type: .sessionStart, detail: "session.start cwd=\(FileManager.default.currentDirectoryPath)"),
         RelayCommandLogEntry(type: .snapshotGet, detail: "snapshot.get seq=8")
@@ -128,6 +135,9 @@ final class MacShellViewModel: ObservableObject {
     private var lastAssistantTextLength = 0
     /// True while a user-created empty thread is waiting for its real thread id.
     private var isCreatingNewSession = false
+    private var continuingArchivedSessionID: String?
+    /// Tracks how much of the streaming text has been scanned for steps.
+    private var parsedTextLength = 0
     let navItems: [NavItem] = [
         NavItem(title: "Codex", symbol: "plus.bubble"),
         NavItem(title: "Sessions", symbol: "clock"),
@@ -143,9 +153,9 @@ final class MacShellViewModel: ObservableObject {
         set { _savedSessionIDsData = (try? JSONEncoder().encode(newValue)) ?? Data() }
     }
 
-    /// All sessions from runtime.
+    /// Runtime sessions plus local archived transcripts.
     var allSessionItems: [SessionListItem] {
-        runtime.sessions.map { s in
+        let runtimeItems = runtime.sessions.map { s in
             SessionListItem(
                 id: s.sessionID,
                 title: s.displayTitle,
@@ -154,6 +164,8 @@ final class MacShellViewModel: ObservableObject {
                 count: 0
             )
         }
+        let runtimeIDs = Set(runtime.sessions.map(\.sessionID))
+        return runtimeItems + archivedSessionItems.filter { !runtimeIDs.contains($0.id) }
     }
 
     /// Sessions NOT saved to workspace (shown in "会话" list).
@@ -316,23 +328,23 @@ final class MacShellViewModel: ObservableObject {
     /// Load archived sessions from .macrelay/sessions/ into the sidebar list.
     func loadPreviousSessionMessages() {
         let archived = journal.loadArchivedSessions()
-        guard !archived.isEmpty else { return }
-
-        // Register each archived session in the sidebar
-        for session in archived {
-            if !runtime.sessions.contains(where: { $0.sessionID == session.sessionID }) {
-                let info = RelaySessionInfoPayload(
-                    sessionID: session.sessionID,
-                    cwd: workspaceCWD,
-                    model: "",
-                    effort: "",
-                    status: "completed",
-                    createdAt: session.createdAt,
-                    title: session.messages.first(where: { $0.role == "User" })?.text
-                )
-                runtime.sessions.append(info)
-            }
+        let archivedIDs = Set(archived.map(\.sessionID))
+        guard !archived.isEmpty else {
+            archivedSessionItems = []
+            restoreSavedRuntimeSessions(archivedIDs: [])
+            return
         }
+
+        archivedSessionItems = archived.map { session in
+            SessionListItem(
+                id: session.sessionID,
+                title: session.messages.first(where: { $0.role == "User" })?.text ?? session.sessionID,
+                subtitle: "",
+                status: "completed",
+                count: session.messages.count
+            )
+        }
+        restoreSavedRuntimeSessions(archivedIDs: archivedIDs)
 
         // Load the most recent session's messages into the conversation view
         if let last = archived.last {
@@ -344,10 +356,18 @@ final class MacShellViewModel: ObservableObject {
 
     /// Select an archived (disk-based) session — load its messages from the log file.
     func selectArchivedSession(sessionID: String) {
-        let entries = journal.loadArchivedSessionMessages(sessionID: sessionID)
-        messages = entries.map { role, text in
-            ConversationMessage(role: role, text: text)
-        }
+        runtime.clearCurrentThread()
+        continuingArchivedSessionID = sessionID
+        // Prefer JSON format with steps, fallback to markdown
+        let loaded = journal.loadArchivedMessagesWithSteps(sessionID: sessionID)
+        messages = loaded.isEmpty
+            ? journal.loadArchivedSessionMessages(sessionID: sessionID).map { ConversationMessage(role: $0.role, text: $0.text) }
+            : loaded
+        isCreatingNewSession = false
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
+        parsedTextLength = 0
     }
 
     /// Delete an archived session (remove from list + delete log file).
@@ -356,6 +376,7 @@ final class MacShellViewModel: ObservableObject {
         saved.remove(id)
         savedSessionIDs = saved
         runtime.sessions.removeAll(where: { $0.sessionID == id })
+        archivedSessionItems.removeAll(where: { $0.id == id })
         journal.deleteArchivedSession(sessionID: id)
     }
 
@@ -470,7 +491,7 @@ final class MacShellViewModel: ObservableObject {
         saveActiveSessionMessages()
         // Archived sessions (from .macrelay/sessions/) are NOT in runtime.sessions.
         // Runtime sessions (active or saved to workspace) ARE in runtime.sessions.
-        if !runtime.sessions.contains(where: { $0.sessionID == id }) {
+        if archivedSessionItems.contains(where: { $0.id == id }) && !runtime.sessions.contains(where: { $0.sessionID == id }) {
             selectArchivedSession(sessionID: id)
             activeRunID = id
             return
@@ -787,6 +808,26 @@ final class MacShellViewModel: ObservableObject {
     private func handleSnapshotUpdate(_ newSnapshot: SessionSnapshot) {
         guard let streamID = streamingMessageID else { return }
 
+        if let error = newSnapshot.lastError {
+            let errorText = error.code.map { "[\($0)] \(error.message)" } ?? error.message
+            replaceStreamingMessage(streamID, with: errorText)
+            return
+        }
+
+        if newSnapshot.status == .exited || newSnapshot.hasExited {
+            replaceStreamingMessage(
+                streamID,
+                with: "Runtime exited before a response was received. Try starting a new session and check the runtime status."
+            )
+            return
+        }
+
+        if newSnapshot.status == .systemError || newSnapshot.status == .failed {
+            let message = newSnapshot.lastError?.message ?? "Runtime failed before a response was received."
+            replaceStreamingMessage(streamID, with: message)
+            return
+        }
+
         // Stream assistant text deltas into the placeholder message
         if let turn = newSnapshot.activeTurn {
             guard let turnID = turn.id else {
@@ -812,10 +853,18 @@ final class MacShellViewModel: ObservableObject {
                 if let idx = messages.lastIndex(where: { $0.id == streamID }) {
                     let displayText = currentText.isEmpty ? "…" : currentText
                     print("[Stream] updating placeholder: count=\(currentText.count) completed=\(turn.isCompleted)")
+
+                    // Parse streaming text for thinking / tool steps
+                    let result = AssistantTextParser.extractNewSteps(from: currentText, previousLength: parsedTextLength)
+                    parsedTextLength = result.scannedLength
+                    let existingSteps = messages[idx].steps
+                    let mergedSteps = existingSteps + result.steps.filter { newStep in !existingSteps.contains(where: { $0.kind == newStep.kind && $0.title == newStep.title }) }
+
                     replaceMessage(at: idx, with: ConversationMessage(
                         id: streamID,
                         role: assistantName,
-                        text: displayText
+                        text: displayText,
+                        steps: mergedSteps
                     ))
                 }
             }
@@ -825,20 +874,45 @@ final class MacShellViewModel: ObservableObject {
                 streamingMessageID = nil
                 streamingTurnID = nil
                 lastAssistantTextLength = 0
+                parsedTextLength = 0
                 journal.logAssistantMessage(assistantName, currentText)
             }
         }
+    }
 
-        // Show errors — replace streaming placeholder
-        if let error = newSnapshot.lastError {
-            if let idx = messages.lastIndex(where: { $0.id == streamID }) {
-                let errorText = error.code.map { "[\($0)] \(error.message)" } ?? error.message
-                replaceMessage(at: idx, with: ConversationMessage(id: streamID, role: "Tool", text: "Error: \(errorText)"))
-            }
-            streamingMessageID = nil
-            streamingTurnID = nil
-            lastAssistantTextLength = 0
+    private func replaceStreamingMessage(_ streamID: UUID, with message: String) {
+        if let idx = messages.lastIndex(where: { $0.id == streamID }) {
+            let existingSteps = messages[idx].steps
+            replaceMessage(at: idx, with: ConversationMessage(id: streamID, role: "Tool", text: "Error: \(message)", steps: existingSteps))
         }
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
+        parsedTextLength = 0
+    }
+
+    /// Called when the runtime publishes updated steps.
+    /// Merges lifecycle steps into the streaming message without touching its text.
+    private func handleStepUpdate(_ steps: [TurnStep]) {
+        guard let streamID = streamingMessageID,
+              let idx = messages.lastIndex(where: { $0.id == streamID }) else {
+            print("[Steps] handleStepUpdate skipped: streamingMessageID=\(streamingMessageID?.uuidString ?? "nil")")
+            return
+        }
+        let existing = messages[idx]
+        var merged = existing.steps
+        // Only append steps we don't already have (match by kind to avoid duplicates)
+        for step in steps {
+            if !merged.contains(where: { $0.kind == step.kind && $0.title == step.title }) {
+                merged.append(step)
+            }
+        }
+        replaceMessage(at: idx, with: ConversationMessage(
+            id: streamID,
+            role: existing.role,
+            text: existing.text,
+            steps: merged
+        ))
     }
 
     private func handleLatestTurnID(_ turnID: String?) {
@@ -911,11 +985,31 @@ final class MacShellViewModel: ObservableObject {
             messageCache.savePending(messages)
             return
         }
-        guard runtime.sessions.contains(where: { $0.sessionID == activeRunID }) else { return }
+        guard runtime.sessions.contains(where: { $0.sessionID == activeRunID }) else {
+            // Archived sessions: save JSON directly
+            let id = activeRunID
+            if !id.isEmpty {
+                journal.saveStructuredMessages(sessionID: id, messages: messages)
+            }
+            return
+        }
         messageCache.save(messages: messages, for: activeRunID)
+        // Also persist to disk for runtime sessions
+        journal.saveStructuredMessages(sessionID: activeRunID, messages: messages)
     }
 
     private func bindCurrentMessages(toSession threadID: String) {
+        if let archivedID = continuingArchivedSessionID {
+            var saved = savedSessionIDs
+            saved.remove(archivedID)
+            saved.insert(threadID)
+            savedSessionIDs = saved
+            archivedSessionItems.removeAll(where: { $0.id == archivedID })
+            activeRunID = threadID
+            messageCache.save(messages: messages, for: threadID)
+            continuingArchivedSessionID = nil
+            return
+        }
         if isCreatingNewSession {
             activeRunID = threadID
             messages = messageCache.bindPendingNewSession(threadID: threadID, currentMessages: messages)
@@ -927,6 +1021,17 @@ final class MacShellViewModel: ObservableObject {
             activeRunID = threadID
         }
         messageCache.save(messages: messages, for: threadID)
+    }
+
+    private func restoreSavedRuntimeSessions(archivedIDs: Set<String>) {
+        for id in savedSessionIDs where !archivedIDs.contains(id) && !runtime.sessions.contains(where: { $0.sessionID == id }) {
+            runtime.rememberSession(
+                sessionID: id,
+                cwd: workspaceCWD,
+                title: String(id.prefix(8)),
+                status: "saved"
+            )
+        }
     }
 
     private func record(_ type: RelayCommandType, _ detail: String) {
@@ -951,21 +1056,29 @@ struct SessionListItem: Identifiable {
     let count: Int
 }
 
-struct ConversationMessage: Identifiable {
+// MARK: - Agent Step Tracking
+
+// TurnStepKind, StepStatus, TurnStep are defined in AgentClientCore (TurnStep.swift)
+// and imported via the AgentClientMacShell module.
+
+struct ConversationMessage: Identifiable, Codable {
     let id: UUID
     let role: String
     let text: String
+    var steps: [TurnStep]
 
-    init(role: String, text: String) {
+    init(role: String, text: String, steps: [TurnStep] = []) {
         self.id = UUID()
         self.role = role
         self.text = text
+        self.steps = steps
     }
 
-    init(id: UUID, role: String, text: String) {
+    init(id: UUID, role: String, text: String, steps: [TurnStep] = []) {
         self.id = id
         self.role = role
         self.text = text
+        self.steps = steps
     }
 }
 
