@@ -242,13 +242,29 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
-    /// CWD for the current project — dynamically detected, never hardcoded.
-    var projectCWD: String {
+    /// User-selected workspace directory. Defaults to home directory.
+    /// Used as the CWD when starting app-server / Claude Code.
+    @Published var workspaceCWD: String = {
         let cwd = FileManager.default.currentDirectoryPath
-        guard FileManager.default.fileExists(atPath: cwd) else {
-            return NSHomeDirectory()
-        }
-        return cwd
+        if FileManager.default.fileExists(atPath: cwd) { return cwd }
+        return NSHomeDirectory()
+    }()
+
+    var projectCWD: String { workspaceCWD }
+
+    /// Open a system folder picker and update workspaceCWD.
+    func selectWorkspace() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.message = "选择 Claude Code 的工作目录"
+        panel.directoryURL = URL(fileURLWithPath: workspaceCWD)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        workspaceCWD = url.path
+        #endif
     }
 
     /// Sandbox for thread/start. Codex app-server 0.141.0 expects kebab-case.

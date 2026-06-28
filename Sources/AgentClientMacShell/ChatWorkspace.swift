@@ -259,8 +259,8 @@ struct Composer: View {
 
             // Toolbar
             HStack(spacing: 6) {
-                // Workspace picker — transparent, no border (HTML style)
-                Button(action: { /* pick workspace */ }) {
+                // Workspace picker — opens system folder picker
+                Button(action: viewModel.selectWorkspace) {
                     HStack(spacing: 6) {
                         Image(systemName: "folder")
                             .font(.system(size: 10))
