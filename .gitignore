@@ -22,3 +22,4 @@ skills-lock.json
 # Local tooling caches / personal paths
 .atl/
 .macrelay/
+.workbuddy/
