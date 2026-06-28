@@ -483,7 +483,13 @@ final class MacShellViewModel: ObservableObject {
         }
         activeRunID = id
         let cached = messageCache.messages(for: id)
-        messages = cached.isEmpty && !messages.isEmpty ? messages : cached
+        if !cached.isEmpty {
+            messages = cached
+        } else {
+            // Try loading from archived log; fall back to empty
+            let archived = journal.loadArchivedSessionMessages(sessionID: id)
+            messages = archived.isEmpty ? [] : archived.map { ConversationMessage(role: $0.role, text: $0.text) }
+        }
         isCreatingNewSession = false
         streamingMessageID = nil
         streamingTurnID = nil

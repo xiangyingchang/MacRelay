@@ -11,11 +11,25 @@ final class ClaudeCodeRuntime: AgentRuntime {
     override init() { super.init(); statusText = "Claude Code ready" }
 
     override var cliInstalled: Bool {
-        // Check if `claude` CLI is on PATH (no zombie processes)
-        guard let proc = try? Process.run(URL(fileURLWithPath: "/usr/bin/env"), arguments: ["which", "claude"]) else { return false }
-        proc.waitUntilExit()
-        return proc.terminationStatus == 0
+        // Cache result so it doesn't spawn a process on every access
+        _cliInstalled
     }
+    private var _cliInstalled: Bool = {
+        // Run Process on a background queue so waitUntilExit's nested run loop
+        // doesn't collide with SwiftUI/AttributeGraph on the main thread during
+        // @MainActor init (especially during window restoration).
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = false
+        DispatchQueue.global().async {
+            if let proc = try? Process.run(URL(fileURLWithPath: "/usr/bin/env"), arguments: ["which", "claude"]) {
+                proc.waitUntilExit()
+                result = proc.terminationStatus == 0
+            }
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
+    }()
 
     // MARK: - Process management
 

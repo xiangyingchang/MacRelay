@@ -251,12 +251,6 @@ struct Composer: View {
                 .background(
                     KeyDownHandler(onKeyDown: { hasStartedEditing = true })
                 )
-                .onChange(of: viewModel.draftText) { _, newValue in
-                    if newValue.hasSuffix("\n") {
-                        viewModel.draftText = String(newValue.dropLast())
-                        viewModel.sendDraft()
-                    }
-                }
 
             // Resize handle (separate so it doesn't interfere with TextEditor)
             ResizeHandleView(
@@ -274,11 +268,9 @@ struct Composer: View {
                     HStack(spacing: 6) {
                         Image(systemName: "folder")
                             .font(.system(size: 10))
-                        Text(viewModel.projectCWD)
+                        Text(viewModel.workspaceFolderName)
                             .font(.system(size: 11, weight: .medium))
                             .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: 80, alignment: .leading)
                     }
                     .foregroundStyle(Theme.muted)
                     .padding(.horizontal, 6)
