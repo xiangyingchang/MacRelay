@@ -789,18 +789,29 @@ final class MacShellViewModel: ObservableObject {
 
         // Stream assistant text deltas into the placeholder message
         if let turn = newSnapshot.activeTurn {
-            guard let turnID = turn.id else { return }
-            let expectedTurnID = streamingTurnID ?? runtime.latestTurnID
-            guard expectedTurnID == turnID else {
+            guard let turnID = turn.id else {
+                print("[Stream] activeTurn.id is nil — can't match streaming session. text=\(turn.assistantText.prefix(80)) completed=\(turn.isCompleted)")
                 return
             }
-            streamingTurnID = turnID
+            // Anchor to the first active turn we see — don't rely on
+            // runtime.latestTurnID which comes from a different event
+            // (turn/start response) and may race with the snapshot update
+            // from turn/started notification.
+            if streamingTurnID == nil {
+                streamingTurnID = turnID
+                print("[Stream] anchored to turnID=\(turnID)")
+            }
+            guard streamingTurnID == turnID else {
+                print("[Stream] turnID mismatch: expected \(streamingTurnID ?? "nil") got \(turnID)")
+                return
+            }
 
             let currentText = turn.assistantText
             if currentText.count > lastAssistantTextLength || turn.isCompleted {
                 lastAssistantTextLength = currentText.count
                 if let idx = messages.lastIndex(where: { $0.id == streamID }) {
                     let displayText = currentText.isEmpty ? "…" : currentText
+                    print("[Stream] updating placeholder: count=\(currentText.count) completed=\(turn.isCompleted)")
                     replaceMessage(at: idx, with: ConversationMessage(
                         id: streamID,
                         role: assistantName,

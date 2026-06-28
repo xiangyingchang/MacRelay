@@ -265,6 +265,14 @@ final class ClaudeCodeRuntime: AgentRuntime {
         guard let data = line.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
+        let method = json["method"] as? String ?? ""
+        let isNotification = json["id"] == nil
+        // Log key event types for streaming debugging
+        if isNotification, ["turn/started", "item/agentMessage/delta", "item/progress", "turn/completed"].contains(method) {
+            let p = json["params"] as? [String: Any]
+            print("[CCRuntime] event: \(method) id=\(json["id"] ?? "nil") turn_id=\(p?["turn_id"] ?? p?["id"] ?? "nil")")
+        }
+
         let event: CodexAppServerEvent
 
         if json["method"] != nil, json["id"] == nil {

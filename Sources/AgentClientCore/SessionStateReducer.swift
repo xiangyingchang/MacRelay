@@ -155,7 +155,11 @@ public struct SessionStateReducer {
 
         case let .turnStarted(params):
             let turn = params["turn"] as? [String: Any]
+            // Try multiple paths for the turn ID: some app-servers send
+            // it nested (turn.id), others at top level (id, turn_id).
             let newId = turn?["id"] as? String
+                ?? params["id"] as? String
+                ?? params["turn_id"] as? String
             // Archive previous turn if different
             if let active = state.activeTurn, let activeId = active.id, activeId != newId, !active.isCompleted {
                 state.completedTurns.append(active)
