@@ -187,7 +187,15 @@ final class ClaudeCodeRuntime: AgentRuntime {
         } else if currentThreadID == nil {
             try startThread(draft: pendingDraft!)
         } else {
-            try startTurnFromDraft()
+            // Wrap in do/catch so pendingDraft is cleared on error,
+            // preventing "previous turn still processing" lockout on
+            // subsequent enqueueDraft calls.
+            do {
+                try startTurnFromDraft()
+            } catch {
+                pendingDraft = nil
+                throw error
+            }
         }
     }
 
@@ -228,7 +236,11 @@ final class ClaudeCodeRuntime: AgentRuntime {
     }
 
     private func startTurnFromDraft() throws {
-        guard let draft = pendingDraft, let threadID = currentThreadID else { return }
+        guard let draft = pendingDraft, let threadID = currentThreadID else {
+            print("[CCRuntime] startTurnFromDraft: pendingDraft=\(pendingDraft != nil) currentThreadID=\(currentThreadID ?? "nil") — bailing")
+            pendingDraft = nil
+            return
+        }
         guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             pendingDraft = nil
             statusText = "thread ready"
