@@ -1,88 +1,72 @@
 # MacRelay
 
-Local-first macOS relay that bridges Codex CLI sessions to a companion iPhone app via HTTP + WebSocket.
+**Mac ↔ iPhone 局域网配对通信桥梁** — 让 iPhone 远程操控 Mac 上 Codex CLI / Claude Code 的 AI 编程会话。
 
-## Current Capabilities
+## 功能
 
-- **Mac relay server** — HTTP (pairing / snapshot / replay) + WebSocket (standard protocol, token or device-challenge auth)
-- **iPhone pairing** — scan QR code / paste payload → one-time claim → WS connect → snapshot/replay/heartbeat
-- **Device trust** — device registration with Keychain-persisted credentials, challenge-response auth (SHA256 / HMAC-SHA256)
-- **Auto-reconnect** — heartbeat loop with exponential backoff, state-machine driven (unpaired → paired → connecting → connected → reconnecting → offline → authFailed)
-- **Mac Inspector** — live relay status, pairing payload display with QR code, rotate/revoke pairing
-- **iOS URL scheme** — `macrelay://pair?host=...&port=...&claim=...` launches the app and triggers pairing
+- **双引擎支持**：Codex CLI 和 Claude Code 无缝切换
+- **会话管理**：创建、查看历史、搜索筛选、保存到工作区
+- **消息同步**：Mac 与 iPhone 双向实时同步
+- **工作区日志**：每次对话自动记录到 `.macrelay/sessions/`
+- **空间记忆**：`.macrelay/memory.md` 累积项目上下文
+- **暗/亮主题**：Geist 设计系统，支持深色/浅色切换
+- **侧边栏折叠**：可拖拽调整宽度（180–400px）
+- **手机配对**：扫码连接，局域网实时通信
 
-## Architecture
-
-```
-AgentClientCore       — shared models, event store, relay protocol, auth, state machine
-AgentClientIO         — iOS/Mac HTTP + WebSocket client library
-AgentClientiOS        — SwiftUI views + view model for iPhone
-AgentClientMacShell   — macOS SwiftUI app shell with Inspector
-MacRelayiOS           — iOS @main app target (builds for simulator)
-```
-
-## Quick Start (macOS)
+## 快速开始
 
 ```bash
-cd /private/tmp/MacRelay
+# 环境要求
+# - macOS 14+
+# - Swift 5.10+
+# - Codex CLI 或 Claude Code（至少一个）
 
-# Full verification (no Codex quota consumed)
-scripts/check.sh
+# 编译 Mac 客户端
+cd macrelay-project
+swift build
 
-# Start Mac shell
-.build/debug/AgentClientMacShell
+# 打包 .app bundle
+scripts/build-mac-shell-app.sh
+open .build/AgentClientMacShell.app
 
-# Run a specific probe
-.build/debug/MacRelayHTTPServerProbe
-.build/debug/MacRelayWebSocketServerProbe
-.build/debug/iPhoneSimClientProbe
-```
-
-## Quick Start (iOS Simulator)
-
-```bash
-# Requires Xcode with iOS 17+ simulator runtime
+# iOS 模拟器
 scripts/build-ios.sh
 
-# Or the check script auto-detects simulator:
-scripts/check.sh
-
-## Quick Start (Real Device)
-
-# Open Xcode App project (includes signing/provisioning)
+# iOS 真机（需要 Xcode + 个人证书）
 open Apps/MacRelayiOSApp/MacRelayiOSApp.xcodeproj
-scripts/build-ios-device.sh  # prints step-by-step guidance
+# → 选 MacRelayiOSApp scheme → iPhone → Personal Team → ⌘R
 ```
 
-## Pairing Flow
+## 架构
 
-1. Start the Mac shell → Inspector → Pairing section shows QR code
-2. Scan QR (or copy URI `macrelay://pair?...`) to iPhone simulator app
-3. App completes claim → connects WebSocket → syncs snapshot + replay events
-4. All subsequent auth uses device credential (Keychain-persisted)
-
-See `docs/e2e-verification.md` for the full manual walkthrough.
-
-## Protocol Docs
-
-- `docs/MacRelay 协议文档.md` — HTTP/WS endpoints, auth flow, error codes, iPhone integration steps
-- `docs/e2e-verification.md` — step-by-step manual verification
-
-## Codex Quota ⚠️
-
-**Live Codex probes are disabled by default.** They consume real model quota.
-
-```bash
-# These run real Codex sessions — use sparingly:
-MACRELAY_RUN_LIVE_CODEX=1 .build/debug/RelayCommandLiveProbe
-MACRELAY_RUN_LIVE_APPROVAL=1 .build/debug/RelayApprovalLiveProbe
+```
+iPhone App (SwiftUI) ──WebSocket──→ Mac .app ──JSON-RPC──→ Codex CLI / Claude Code
+       │                              │
+       └── macrelay://pair URI ─────→ MacRelayHTTPServer
 ```
 
-All other probes (`check.sh`, `swift test`, `MacRelayHTTPServerProbe`, etc.) use local fixtures and do NOT consume quota.
+| 模块 | 作用 |
+|------|------|
+| `AgentRuntime` | 统一基类，Codex CLI / Claude Code 共用 |
+| `CodexRuntime` | Codex CLI app-server JSON-RPC |
+| `ClaudeCodeRuntime` | Claude Code app-server JSON-RPC |
+| `MacRelayService` | 事件归约 + 状态快照 + 广播 |
+| `SessionJournal` | 对话日志 + 空间记忆持久化 |
 
-## Not Yet Done
+## 技术栈
 
-- App Store distribution pipeline
-- Real approval.resolve live (probe is gated, draft exists)
-- Production-level QR with encrypted payload
-- iOS Keychain credential sharing between app extensions
+- **语言**：Swift 5.10
+- **UI 框架**：SwiftUI（macOS 14+ / iOS 17+）
+- **通信**：WebSocket + HTTP（Network.framework）
+- **协议**：JSON-RPC 2.0 over stdio
+- **设计系统**：Geist（Vercel），参考 `DESIGN.md`
+
+## 设计
+
+配色、间距、字体等设计规范详见 [`DESIGN.md`](./DESIGN.md)。  
+HTML 交互原型见 [`design-prototype.html`](./design-prototype.html)。  
+协议文档见 [`docs/MacRelay 协议文档.md`](./docs/MacRelay%20协议文档.md)。
+
+## License
+
+MIT
