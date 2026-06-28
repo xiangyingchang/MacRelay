@@ -216,6 +216,7 @@ struct CommandApprovalCard: View {
 struct Composer: View {
     @ObservedObject var viewModel: MacShellViewModel
     @State private var editorHeight: CGFloat = 72
+    @State private var hasStartedEditing = false
     private let minEditorHeight: CGFloat = 48
     private let maxEditorHeight: CGFloat = 320
 
@@ -231,15 +232,25 @@ struct Composer: View {
                 .padding(.top, 9)
                 .frame(height: editorHeight)
                 .overlay(alignment: .topLeading) {
-                    if viewModel.draftText.isEmpty {
-                        Text("提出后续修改要求")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.muted.opacity(0.7))
-                            .padding(.horizontal, 16)
-                            .padding(.top, 11)
-                            .allowsHitTesting(false)
+                    Text("提出后续修改要求")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.muted.opacity(0.7))
+                        .padding(.horizontal, 16)
+                        .padding(.top, 11)
+                        .allowsHitTesting(false)
+                        .opacity(viewModel.draftText.isEmpty && !hasStartedEditing ? 1 : 0)
+                }
+                .onChange(of: viewModel.draftText) { _, newValue in
+                    if !newValue.isEmpty { hasStartedEditing = true }
+                    if newValue.hasSuffix("\n") {
+                        viewModel.draftText = String(newValue.dropLast())
+                        viewModel.sendDraft()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { hasStartedEditing = false }
                     }
                 }
+                .background(
+                    KeyDownHandler(onKeyDown: { hasStartedEditing = true })
+                )
                 .onChange(of: viewModel.draftText) { _, newValue in
                     if newValue.hasSuffix("\n") {
                         viewModel.draftText = String(newValue.dropLast())
@@ -316,7 +327,38 @@ struct Composer: View {
     }
 }
 
-// MARK: - Plan Toggle
+// MARK: - KeyDownHandler (detects IME/any keyboard input before text commit)
+
+#if os(macOS)
+import AppKit
+
+struct KeyDownHandler: NSViewRepresentable {
+    let onKeyDown: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = KeyCaptureView(onKeyDown: onKeyDown)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+class KeyCaptureView: NSView {
+    let onKeyDown: () -> Void
+    init(onKeyDown: @escaping () -> Void) {
+        self.onKeyDown = onKeyDown
+        super.init(frame: .zero)
+    }
+    required init?(coder: NSCoder) { nil }
+    override var acceptsFirstResponder: Bool { false }
+
+    override func keyDown(with event: NSEvent) {
+        onKeyDown()
+        super.keyDown(with: event)
+    }
+}
+#endif
+
 // MARK: - Send Button
 struct SendButton: View {
     let action: () -> Void

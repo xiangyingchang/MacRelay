@@ -80,7 +80,8 @@ struct Sidebar: View {
                                         onDelete: { viewModel.deleteSession(id: session.id) },
                                         onSave: nil
                                     )
-                                    .padding(.leading, 20)
+                                    .padding(.horizontal, 8)
+                                    .padding(.leading, 18)
                                 }
                             }
                         }

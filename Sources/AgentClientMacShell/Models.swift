@@ -361,6 +361,7 @@ final class MacShellViewModel: ObservableObject {
 
     /// Save a session to workspace (moves from active list to workspace list).
     func saveSessionToWorkspace(id: String) {
+        saveActiveSessionMessages()
         var saved = savedSessionIDs
         saved.insert(id)
         savedSessionIDs = saved
@@ -467,8 +468,9 @@ final class MacShellViewModel: ObservableObject {
     /// and show a confirmation message.
     func selectSession(id: String) {
         saveActiveSessionMessages()
-        // Check if this is an archived session (date-prefixed ID from .macrelay/sessions/)
-        if id.contains("-"), id.count >= 14 {
+        // Archived sessions (from .macrelay/sessions/) are NOT in runtime.sessions.
+        // Runtime sessions (active or saved to workspace) ARE in runtime.sessions.
+        if !runtime.sessions.contains(where: { $0.sessionID == id }) {
             selectArchivedSession(sessionID: id)
             activeRunID = id
             return
@@ -480,7 +482,8 @@ final class MacShellViewModel: ObservableObject {
             return
         }
         activeRunID = id
-        messages = messageCache.messages(for: id)
+        let cached = messageCache.messages(for: id)
+        messages = cached.isEmpty && !messages.isEmpty ? messages : cached
         isCreatingNewSession = false
         streamingMessageID = nil
         streamingTurnID = nil
