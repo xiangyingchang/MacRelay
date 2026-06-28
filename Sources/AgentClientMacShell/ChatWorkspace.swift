@@ -129,10 +129,10 @@ struct MarkdownText: View {
     init(_ text: String) { self._text = text }
 
     var body: some View {
-        if let attributed = try? AttributedString(markdown: _text, options: .init(
-            allowsExtendedAttributes: false,
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )) {
+        if let attributed = try? AttributedString(
+            markdown: _text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
             Text(attributed)
                 .font(.system(size: 14))
                 .lineSpacing(3)

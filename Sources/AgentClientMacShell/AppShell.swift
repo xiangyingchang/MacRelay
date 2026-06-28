@@ -6,7 +6,12 @@ struct MacShellView: View {
     @State private var showPhonePopover = false
     @State private var showSettingsPopover = false
     @AppStorage("themeMode") private var themeMode: String = "dark"
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
+    @State private var inspectorWidth: Double = 290
     private var isLightTheme: Bool { themeMode == "light" }
+    private let minSidebar: Double = 180
+    private let maxSidebar: Double = 400
+    private let minInspector: Double = 200
 
     var body: some View {
         HStack(spacing: 0) {
@@ -21,8 +26,8 @@ struct MacShellView: View {
                 Rule()
             } else if sidebarVisible {
                 Sidebar(viewModel: viewModel, toggleSidebar: { sidebarVisible.toggle() }, showPhonePopover: $showPhonePopover, showSettingsPopover: $showSettingsPopover)
-                    .frame(width: 240)
-                Rule()
+                    .frame(width: sidebarWidth)
+                ResizableDivider(dragWidth: $sidebarWidth, min: minSidebar, max: maxSidebar)
             } else {
                 CollapsedSidebar(toggleSidebar: { sidebarVisible.toggle() })
             }

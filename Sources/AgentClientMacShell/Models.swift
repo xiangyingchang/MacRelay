@@ -284,14 +284,41 @@ final class MacShellViewModel: ObservableObject {
         #endif
     }
 
-    /// Load previous conversation transcripts from .macrelay/sessions/.
+    /// Load archived sessions from .macrelay/sessions/ into the sidebar list.
     func loadPreviousSessionMessages() {
-        let entries = journal.loadPreviousSessions()
-        guard !entries.isEmpty else { return }
+        let archived = journal.loadArchivedSessions()
+        guard !archived.isEmpty else { return }
+
+        // Register each archived session in the sidebar
+        for session in archived {
+            if !runtime.sessions.contains(where: { $0.sessionID == session.sessionID }) {
+                let info = RelaySessionInfoPayload(
+                    sessionID: session.sessionID,
+                    cwd: workspaceCWD,
+                    model: "",
+                    effort: "",
+                    status: "completed",
+                    createdAt: session.createdAt,
+                    title: session.messages.first(where: { $0.role == "User" })?.text
+                )
+                runtime.sessions.append(info)
+            }
+        }
+
+        // Load the most recent session's messages into the conversation view
+        if let last = archived.last {
+            messages = last.messages.map { role, text in
+                ConversationMessage(role: role, text: text)
+            }
+        }
+    }
+
+    /// Select an archived (disk-based) session — load its messages from the log file.
+    func selectArchivedSession(sessionID: String) {
+        let entries = journal.loadArchivedSessionMessages(sessionID: sessionID)
         messages = entries.map { role, text in
             ConversationMessage(role: role, text: text)
         }
-        // Scroll to bottom will happen via .onChange in ChatWorkspace
     }
 
     /// Sandbox for thread/start. Codex app-server 0.141.0 expects kebab-case.
@@ -395,6 +422,12 @@ final class MacShellViewModel: ObservableObject {
     /// and show a confirmation message.
     func selectSession(id: String) {
         saveActiveSessionMessages()
+        // Check if this is an archived session (date-prefixed ID from .macrelay/sessions/)
+        if id.contains("-"), id.count >= 14 {
+            selectArchivedSession(sessionID: id)
+            activeRunID = id
+            return
+        }
         do {
             try runtime.selectSession(sessionID: id)
         } catch {

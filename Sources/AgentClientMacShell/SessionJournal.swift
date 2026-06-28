@@ -78,21 +78,45 @@ final class SessionJournal {
         writeLine("> \(event)")
     }
 
-    /// Load previous session transcripts as conversation messages.
-    func loadPreviousSessions() -> [(role: String, text: String)] {
+    /// A previous session loaded from disk.
+    struct ArchivedSession {
+        let sessionID: String
+        let createdAt: Date
+        let messages: [(role: String, text: String)]
+    }
+
+    /// Load all archived sessions from .macrelay/sessions/.
+    func loadArchivedSessions() -> [ArchivedSession] {
         guard !workspacePath.isEmpty else { return [] }
         let sessionsDir = workspacePath + "/.macrelay/sessions"
         guard let files = try? fileManager.contentsOfDirectory(atPath: sessionsDir) else { return [] }
 
-        var messages: [(String, String)] = []
-        for file in files.sorted() where file.hasSuffix(".log") {
+        var sessions: [ArchivedSession] = []
+        let sortedFiles = files
+            .filter { $0.hasSuffix(".log") }
+            .sorted { a, b in
+                let aURL = URL(fileURLWithPath: sessionsDir + "/" + a)
+                let bURL = URL(fileURLWithPath: sessionsDir + "/" + b)
+                let aMod = (try? aURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let bMod = (try? bURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return aMod > bMod
+            }
+        for file in sortedFiles {
+            let sessionID = String(file.dropLast(4)) // remove .log
             let path = sessionsDir + "/" + file
             guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+
+            // Parse creation time from "> Started at ..."
+            var createdAt = Date()
+            var messages: [(String, String)] = []
             var currentRole = ""
             var currentText = ""
+
             for line in content.components(separatedBy: "\n") {
-                if line.hasPrefix("## ") {
-                    // Flush previous entry
+                if line.hasPrefix("> Started at ") {
+                    let iso = String(line.dropFirst(13))
+                    if let date = ISO8601DateFormatter().date(from: iso) { createdAt = date }
+                } else if line.hasPrefix("## ") {
                     if !currentRole.isEmpty && !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
                         messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
                     }
@@ -102,10 +126,37 @@ final class SessionJournal {
                     currentText += line + "\n"
                 }
             }
-            // Flush last entry
             if !currentRole.isEmpty && !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
                 messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
             }
+
+            sessions.append(ArchivedSession(sessionID: sessionID, createdAt: createdAt, messages: messages))
+        }
+        return sessions
+    }
+
+    /// Load messages for a specific archived session.
+    func loadArchivedSessionMessages(sessionID: String) -> [(role: String, text: String)] {
+        let sessionsDir = workspacePath + "/.macrelay/sessions"
+        let path = sessionsDir + "/" + sessionID + ".log"
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+
+        var messages: [(String, String)] = []
+        var currentRole = ""
+        var currentText = ""
+        for line in content.components(separatedBy: "\n") {
+            if line.hasPrefix("## ") {
+                if !currentRole.isEmpty && !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
+                }
+                currentRole = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                currentText = ""
+            } else if !line.hasPrefix("#") && !line.hasPrefix("> ") {
+                currentText += line + "\n"
+            }
+        }
+        if !currentRole.isEmpty && !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
+            messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         return messages
     }

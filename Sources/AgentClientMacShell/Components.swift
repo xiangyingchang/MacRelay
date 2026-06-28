@@ -178,6 +178,46 @@ struct Rule: View {
     }
 }
 
+// MARK: - Resizable Column Divider
+
+/// A thin vertical strip that acts as a drag handle between columns.
+/// Place as an `.overlay` on the column whose width should be resizable.
+struct ResizableDivider: View {
+    @Binding var dragWidth: Double
+    let min: Double
+    let max: Double
+    var edge: Edge = .trailing
+
+    var body: some View {
+        // Visible 1px separator line + invisible 5px hit area = 6px total
+        ZStack {
+            Rectangle()
+                .fill(Theme.border)
+                .frame(width: 1)
+            Color.clear
+                .frame(width: 6)
+                .contentShape(Rectangle())
+        }
+        .frame(width: 6)
+        .onHover { inside in
+            if inside {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                .onChanged { value in
+                    let delta = edge == .trailing
+                        ? value.translation.width
+                        : -value.translation.width
+                    dragWidth = Swift.max(self.min, Swift.min(self.max, self.dragWidth + delta))
+                }
+        )
+    }
+}
+
 // MARK: - Section Label
 struct SectionLabel: View {
     let text: String
