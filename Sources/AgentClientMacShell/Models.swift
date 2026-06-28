@@ -242,13 +242,18 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
+    /// Journal for session transcripts and project memory.
+    let journal = SessionJournal()
+
     /// User-selected workspace directory. Defaults to home directory.
     /// Used as the CWD when starting app-server / Claude Code.
     @Published var workspaceCWD: String = {
         let cwd = FileManager.default.currentDirectoryPath
         if FileManager.default.fileExists(atPath: cwd) { return cwd }
         return NSHomeDirectory()
-    }()
+    }() {
+        didSet { journal.workspacePath = workspaceCWD }
+    }
 
     var projectCWD: String { workspaceCWD }
 
@@ -628,6 +633,7 @@ final class MacShellViewModel: ObservableObject {
 
     private func sendDraftReal(_ text: String) {
         messages.append(ConversationMessage(role: "User", text: text))
+        journal.logUserMessage(text)
 
         // Add a streaming placeholder that will be updated by delta events
         let streamingMsg = ConversationMessage(role: assistantName, text: "…")
@@ -690,11 +696,12 @@ final class MacShellViewModel: ObservableObject {
                 }
             }
 
-            // Turn completed — finalize
+            // Turn completed — finalize and log to journal
             if turn.isCompleted {
                 streamingMessageID = nil
                 streamingTurnID = nil
                 lastAssistantTextLength = 0
+                journal.logAssistantMessage(assistantName, currentText)
             }
         }
 
