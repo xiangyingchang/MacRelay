@@ -14,3 +14,7 @@ xcuserdata/
 *.pem
 *.key
 *.p12
+.agents/
+.claude/
+default.profraw
+skills-lock.json
