@@ -247,12 +247,22 @@ final class MacShellViewModel: ObservableObject {
 
     /// User-selected workspace directory. Defaults to home directory.
     /// Used as the CWD when starting app-server / Claude Code.
+    private let workspaceCWDKey = "MacShellWorkspaceCWD"
+
     @Published var workspaceCWD: String = {
+        // Restore last workspace from UserDefaults
+        if let saved = UserDefaults.standard.string(forKey: "MacShellWorkspaceCWD"),
+           FileManager.default.fileExists(atPath: saved) {
+            return saved
+        }
         let cwd = FileManager.default.currentDirectoryPath
         if FileManager.default.fileExists(atPath: cwd) { return cwd }
         return NSHomeDirectory()
     }() {
-        didSet { journal.workspacePath = workspaceCWD }
+        didSet {
+            UserDefaults.standard.set(workspaceCWD, forKey: workspaceCWDKey)
+            journal.workspacePath = workspaceCWD
+        }
     }
 
     var projectCWD: String { workspaceCWD }
@@ -269,7 +279,19 @@ final class MacShellViewModel: ObservableObject {
         panel.directoryURL = URL(fileURLWithPath: workspaceCWD)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         workspaceCWD = url.path
+        // Auto-load previous sessions from this workspace
+        loadPreviousSessionMessages()
         #endif
+    }
+
+    /// Load previous conversation transcripts from .macrelay/sessions/.
+    func loadPreviousSessionMessages() {
+        let entries = journal.loadPreviousSessions()
+        guard !entries.isEmpty else { return }
+        messages = entries.map { role, text in
+            ConversationMessage(role: role, text: text)
+        }
+        // Scroll to bottom will happen via .onChange in ChatWorkspace
     }
 
     /// Sandbox for thread/start. Codex app-server 0.141.0 expects kebab-case.
@@ -330,6 +352,10 @@ final class MacShellViewModel: ObservableObject {
         if relayServerConfiguredToStart {
             startRelayServer(persistConfiguration: false)
         }
+
+        // Restore last workspace and load previous conversations
+        journal.workspacePath = workspaceCWD
+        loadPreviousSessionMessages()
 
         setupRuntimeSubscriptions()
         runtime.refreshDetection()

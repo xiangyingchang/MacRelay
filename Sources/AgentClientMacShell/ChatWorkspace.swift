@@ -94,11 +94,10 @@ struct MessageRow: View {
                     .stroke(Theme.border, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMd))
-
-            Spacer(minLength: 90)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

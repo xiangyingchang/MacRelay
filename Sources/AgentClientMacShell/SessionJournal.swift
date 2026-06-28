@@ -78,6 +78,38 @@ final class SessionJournal {
         writeLine("> \(event)")
     }
 
+    /// Load previous session transcripts as conversation messages.
+    func loadPreviousSessions() -> [(role: String, text: String)] {
+        guard !workspacePath.isEmpty else { return [] }
+        let sessionsDir = workspacePath + "/.macrelay/sessions"
+        guard let files = try? fileManager.contentsOfDirectory(atPath: sessionsDir) else { return [] }
+
+        var messages: [(String, String)] = []
+        for file in files.sorted() where file.hasSuffix(".log") {
+            let path = sessionsDir + "/" + file
+            guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            var currentRole = ""
+            var currentText = ""
+            for line in content.components(separatedBy: "\n") {
+                if line.hasPrefix("## ") {
+                    // Flush previous entry
+                    if !currentRole.isEmpty && !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
+                        messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    }
+                    currentRole = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    currentText = ""
+                } else if !line.hasPrefix("#") && !line.hasPrefix("> ") {
+                    currentText += line + "\n"
+                }
+            }
+            // Flush last entry
+            if !currentRole.isEmpty && !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
+                messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+        }
+        return messages
+    }
+
     /// Append a summary of today's work to memory.md.
     func appendMemory(_ text: String) {
         guard !memoryPath.isEmpty else { return }
