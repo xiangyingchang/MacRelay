@@ -256,7 +256,7 @@ M2 目标：体验打磨到高品味工具产品。
 本机环境：
 
 - Codex CLI 已安装。
-- Codex CLI 路径：`/Users/haoshifasheng/.npm-global/bin/codex`
+- Codex CLI 路径：`~/.npm-global/bin/codex`
 - Codex CLI 版本：`codex-cli 0.141.0`
 - Swift 命令行可用：Apple Swift 6.1.2
 - 当前只有 Command Line Tools，没有完整 Xcode。`xcodebuild -version` 提示 active developer directory 是 `/Library/Developer/CommandLineTools`，不是完整 Xcode。
@@ -341,7 +341,7 @@ M0.2 初步判断：
 第一次运行结果：
 
 - app-server 需要写入 `~/.codex` 下的 sqlite 状态。
-- 在受限沙箱内运行失败，错误为无法初始化 `/Users/haoshifasheng/.codex` state runtime。
+- 在受限沙箱内运行失败，错误为无法初始化 `~/.codex` state runtime。
 - 使用授权运行后通过。
 
 第二次运行结果：
@@ -2121,7 +2121,7 @@ Claude Code 辅助：
 新增能力：
 
 - `CodexCLIDetector`：
-  - 查找 `/Users/haoshifasheng/.npm-global/bin/codex`
+  - 查找 `~/.npm-global/bin/codex`
   - 查找 `/opt/homebrew/bin/codex`
   - 查找 `/usr/local/bin/codex`
   - 回退扫描 `PATH`
@@ -2152,7 +2152,7 @@ Claude Code 辅助：
 
 ```text
 installed=true
-path=/Users/haoshifasheng/.npm-global/bin/codex
+path=~/.npm-global/bin/codex
 version=codex-cli 0.141.0
 ```
 
@@ -2166,7 +2166,7 @@ env: node: No such file or directory
 
 - 原因：Codex CLI 入口是 `#!/usr/bin/env node`，GUI/Swift 子进程环境里的 `PATH` 不稳定，找不到 `/usr/local/bin/node`。
 - 已在 core 层补齐 Codex 子进程环境：
-  - `/Users/haoshifasheng/.npm-global/bin`
+  - `~/.npm-global/bin`
   - `/usr/local/bin`
   - `/opt/homebrew/bin`
   - `/usr/bin`
@@ -2258,7 +2258,7 @@ env: node: No such file or directory
 真实验证输出：
 
 ```text
-codex=/Users/haoshifasheng/.npm-global/bin/codex
+codex=~/.npm-global/bin/codex
 version=codex-cli 0.141.0
 response id=1 method=initialize keys=["codexHome", "platformFamily", "platformOs", "userAgent"]
 notification method=remoteControl/status/changed

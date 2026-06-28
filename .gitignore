@@ -18,3 +18,7 @@ xcuserdata/
 .claude/
 default.profraw
 skills-lock.json
+
+# Local tooling caches / personal paths
+.atl/
+.macrelay/
