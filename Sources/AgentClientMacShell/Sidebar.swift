@@ -46,29 +46,29 @@ struct Sidebar: View {
                         )
                     }
 
-                    // Workspace section — shows saved sessions
-                    CollapsibleSectionHeader(
-                        title: "空间",
-                        count: viewModel.workspaceSessions.count,
-                        isExpanded: $workspaceExpanded
-                    )
-                    .padding(.top, 4)
-                    if workspaceExpanded {
-                        VStack(spacing: 0) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "folder")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Theme.muted)
-                                Text(viewModel.workspaceFolderName)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(Theme.fg)
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
+                    // Workspace section — only shown when it has sessions
+                    if !viewModel.workspaceSessions.isEmpty {
+                        CollapsibleSectionHeader(
+                            title: "空间",
+                            count: viewModel.workspaceSessions.count,
+                            isExpanded: $workspaceExpanded
+                        )
+                        .padding(.top, 4)
+                        if workspaceExpanded {
+                            VStack(spacing: 0) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "folder")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Theme.muted)
+                                    Text(viewModel.workspaceFolderName)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(Theme.fg)
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
 
-                            if !viewModel.workspaceSessions.isEmpty {
                                 ForEach(viewModel.workspaceSessions) { session in
                                     SessionRow(
                                         item: session,
