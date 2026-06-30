@@ -55,6 +55,17 @@ open class AgentRuntime: ObservableObject {
         currentSteps[currentSteps.count - 1].status = status
     }
 
+    /// Mark all `.active` steps as `.completed`.
+    open func completeActiveSteps() {
+        var steps = currentSteps
+        var changed = false
+        for i in steps.indices where steps[i].status == .active {
+            steps[i].status = .completed
+            changed = true
+        }
+        if changed { currentSteps = steps }
+    }
+
     open func enqueueDraft(
         cwd: String, text: String, model: String?, effort: String?,
         threadSandbox: String, turnSandbox: String, approvalPolicy: String

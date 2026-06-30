@@ -483,6 +483,8 @@ final class ClaudeCodeRuntime: AgentRuntime {
         case "turn/started":
             let turnID = params?["turn_id"] as? String ?? params?["id"] as? String ?? (params?["turn"] as? [String: Any])?["id"] as? String
             if let turnID { latestTurnID = turnID }
+            // Mark previous active step (turnStart) as completed
+            updateLastStep(status: .completed)
             addStep(.assistantResponse, status: .active)
             if let threadID = currentThreadID,
                let idx = sessions.firstIndex(where: { $0.sessionID == threadID }),
@@ -493,13 +495,13 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         case "turn/completed":
             statusText = "turn completed"
-            updateLastStep(status: .completed)
+            completeActiveSteps()
             addStep(.turnCompleted)
             pendingDraft = nil
 
         case "turn/error":
             statusText = "turn error"
-            updateLastStep(status: .failed)
+            completeActiveSteps()
             addStep(.error, detail: params?["error"] as? String, status: .failed)
             pendingDraft = nil
 
@@ -507,7 +509,9 @@ final class ClaudeCodeRuntime: AgentRuntime {
             break // Reducer handles text append
 
         case "item/progress":
-            break // normalizedEvent maps this to item/agentMessage/delta
+            if let detail = stepDetail(from: params) {
+                addStep(progressKind(for: detail), detail: detail, status: .completed)
+            }
 
         case "error":
             statusText = "error"
@@ -515,7 +519,75 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         default:
             statusText = "notification: \(method)"
+            if method.localizedCaseInsensitiveContains("tool")
+                || method.localizedCaseInsensitiveContains("function")
+                || method.localizedCaseInsensitiveContains("command") {
+                addStep(.toolCall, detail: stepDetail(from: params) ?? method, status: .completed)
+            }
         }
+    }
+
+    private func progressKind(for detail: String) -> TurnStepKind {
+        let lowered = detail.lowercased()
+        if lowered.contains("tool")
+            || lowered.contains("function")
+            || lowered.contains("command")
+            || lowered.contains("exec")
+            || lowered.contains("file")
+            || lowered.contains("read")
+            || lowered.contains("write")
+            || lowered.contains("edit") {
+            return .toolCall
+        }
+        return .thinking
+    }
+
+    private func stepDetail(from params: [String: Any]?) -> String? {
+        guard let params else { return nil }
+        let delta = params["delta"] as? [String: Any]
+        let candidates: [Any?] = [
+            params["title"],
+            params["message"],
+            params["summary"],
+            params["text"],
+            params["name"],
+            params["command"],
+            params["path"],
+            delta?["title"],
+            delta?["message"],
+            delta?["summary"],
+            delta?["text"],
+            delta?["name"],
+            delta?["command"],
+            delta?["path"]
+        ]
+        for candidate in candidates {
+            if let value = candidate as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmedForStep(trimmed)
+                }
+            }
+        }
+        return jsonSummary(params)
+    }
+
+    private func jsonSummary(_ value: Any) -> String? {
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return trimmedForStep(text)
+    }
+
+    private func trimmedForStep(_ value: String) -> String {
+        let singleLine = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard singleLine.count > 280 else { return singleLine }
+        return String(singleLine.prefix(277)) + "..."
     }
 
     private func normalizedEvent(_ event: CodexAppServerEvent) -> CodexAppServerEvent {

@@ -16,7 +16,15 @@ final class SessionJournal {
     private let fileManager = FileManager.default
 
     /// Current workspace path — changes when user picks a new folder.
-    var workspacePath: String = ""
+    var workspacePath: String = "" {
+        didSet {
+            guard oldValue != workspacePath else { return }
+            sessionLogPath = ""
+            memoryPath = ""
+            sessionSeq = 0
+            initialized = false
+        }
+    }
 
     private var sessionLogPath: String = ""
     private var memoryPath: String = ""

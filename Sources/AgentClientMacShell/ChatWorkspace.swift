@@ -67,43 +67,66 @@ struct EmptyConversationView: View {
 // MARK: - Message Row
 struct MessageRow: View {
     let message: ConversationMessage
+    private var isUser: Bool { message.role == "User" }
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             MessageAvatar(role: message.role)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(message.role)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(message.role == "User" ? Theme.accent : Theme.muted)
-                if message.role == "User" {
-                    Text(message.text)
-                        .font(.system(size: 14))
-                        .foregroundStyle(Theme.fg)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if isUser {
+                    userMessageContent
                 } else {
-                    MarkdownText(message.text)
-                }
-
-                // Agent process steps (collapsible, below assistant text)
-                if !message.steps.isEmpty, message.role != "User" {
-                    MessageStepsView(steps: message.steps)
-                        .padding(.top, 4)
+                    agentMessageContent
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Theme.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusMd)
-                    .stroke(Theme.border, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMd))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 24)
+        .padding(.vertical, isUser ? 8 : 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var userMessageContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            messageRoleLabel
+                .foregroundStyle(Theme.accent)
+            Text(message.text)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.fg)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusMd)
+                .fill(Theme.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusMd)
+                .stroke(Theme.border, lineWidth: 1)
+        )
+    }
+
+    private var agentMessageContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            messageRoleLabel
+                .foregroundStyle(Theme.muted)
+
+            if !message.steps.isEmpty {
+                MessageStepsView(steps: message.steps)
+            }
+
+            MarkdownText(message.text)
+        }
+        .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var messageRoleLabel: some View {
+        Text(message.role)
+            .font(.system(size: isUser ? 11 : 13, weight: .semibold))
     }
 }
 
@@ -114,16 +137,12 @@ struct MessageAvatar: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(role == "User" ? Theme.accentSoft : Theme.surface)
+                .fill(role == "User" ? Theme.accentSoft : Theme.muted.opacity(0.10))
             Image(systemName: role == "User" ? "person.fill" : "command")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(role == "User" ? Theme.accent : Theme.muted)
         }
         .frame(width: 28, height: 28)
-        .overlay(
-            role == "User" ? nil :
-                Circle().stroke(Theme.border, lineWidth: 1)
-        )
     }
 }
 
@@ -162,35 +181,39 @@ struct StepRow: View {
     let step: TurnStep
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: step.icon)
-                .font(.system(size: 9))
-                .foregroundStyle(iconColor)
-                .frame(width: 14)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: step.icon)
+                    .font(.system(size: 10))
+                    .foregroundStyle(iconColor)
+                    .frame(width: 15)
 
-            Text(step.title)
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.fg)
-                .lineLimit(1)
+                Text(step.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.fg)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Text(statusLabel)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(statusColor.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
 
             if let detail = step.detail, !detail.isEmpty {
                 Text(detail)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Theme.muted)
-                    .lineLimit(1)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 21)
             }
-
-            Spacer()
-
-            Text(statusLabel)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(statusColor)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(statusColor.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 3))
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
         .padding(.horizontal, 4)
     }
 
@@ -227,63 +250,54 @@ struct MessageStepsView: View {
     @State private var isExpanded = false
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeOut(duration: 0.12)) {
                     isExpanded.toggle()
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .animation(.easeOut(duration: 0.12), value: isExpanded)
-
                     Text("Agent Process")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Theme.muted)
 
-                    Text("(\(steps.count))")
+                    Text("(\(progressText))")
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.muted.opacity(0.7))
 
-                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.muted)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.easeOut(duration: 0.12), value: isExpanded)
 
-                    // Show a summary of completed vs active
-                    let done = steps.filter { $0.status == .completed }.count
-                    if done < steps.count {
-                        Text("\(done)/\(steps.count)")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(Theme.accent)
-                    } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.green)
-                    }
+                    Spacer()
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.vertical, 4)
-            .padding(.horizontal, 8)
-            .background(Theme.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusSm)
-                    .stroke(Theme.border.opacity(0.5), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(steps) { step in
                         StepRow(step: step)
                     }
                 }
-                .padding(.top, 4)
-                .padding(.leading, 8)
+                .padding(.top, 6)
+                .padding(.leading, 10)
+                .padding(.trailing, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var progressText: String {
+        let done = steps.filter { $0.status == .completed }.count
+        return done < steps.count ? "\(done)/\(steps.count)" : "\(steps.count)"
     }
 }
 

@@ -37,6 +37,7 @@ struct Sidebar: View {
                         SessionListView(
                             sessions: viewModel.activeSessions,
                             activeID: viewModel.activeRunID,
+                            streamingSessionID: viewModel.streamingSessionID,
                             select: { id in
                                 viewModel.activeNav = "Sessions"
                                 viewModel.selectSession(id: id)
@@ -73,6 +74,7 @@ struct Sidebar: View {
                                     SessionRow(
                                         item: session,
                                         isActive: session.id == viewModel.activeRunID,
+                                        isStreaming: session.id == viewModel.streamingSessionID,
                                         action: {
                                             viewModel.activeNav = "Sessions"
                                             viewModel.selectSession(id: session.id)
@@ -161,13 +163,15 @@ struct CollapsibleSectionHeader: View {
 struct SessionListView: View {
     let sessions: [SessionListItem]
     let activeID: String
+    let streamingSessionID: String?
     let select: (String) -> Void
     let onDelete: ((String) -> Void)?
     let onSave: ((String) -> Void)?
 
-    init(sessions: [SessionListItem], activeID: String, select: @escaping (String) -> Void, onDelete: ((String) -> Void)? = nil, onSave: ((String) -> Void)? = nil) {
+    init(sessions: [SessionListItem], activeID: String, streamingSessionID: String? = nil, select: @escaping (String) -> Void, onDelete: ((String) -> Void)? = nil, onSave: ((String) -> Void)? = nil) {
         self.sessions = sessions
         self.activeID = activeID
+        self.streamingSessionID = streamingSessionID
         self.select = select
         self.onDelete = onDelete
         self.onSave = onSave
@@ -179,6 +183,7 @@ struct SessionListView: View {
                 SessionRow(
                     item: item,
                     isActive: item.id == activeID,
+                    isStreaming: item.id == streamingSessionID,
                     action: { select(item.id) },
                     onDelete: onDelete.map { cb in { cb(item.id) } },
                     onSave: onSave.map { cb in { cb(item.id) } }
@@ -193,6 +198,7 @@ struct SessionListView: View {
 struct SessionRow: View {
     let item: SessionListItem
     let isActive: Bool
+    let isStreaming: Bool
     let action: () -> Void
     var onDelete: (() -> Void)?
     var onSave: (() -> Void)?
@@ -202,9 +208,16 @@ struct SessionRow: View {
         HStack(spacing: 0) {
             Button(action: action) {
                 HStack(spacing: 10) {
-                    Circle()
-                        .fill(isActive ? Theme.accent : Theme.muted.opacity(0.3))
-                        .frame(width: 6, height: 6)
+                    if isStreaming {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .scaleEffect(0.6)
+                            .frame(width: 6, height: 6)
+                    } else {
+                        Circle()
+                            .fill(isActive ? Theme.accent : Theme.muted.opacity(0.3))
+                            .frame(width: 6, height: 6)
+                    }
                     Text(item.title)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)

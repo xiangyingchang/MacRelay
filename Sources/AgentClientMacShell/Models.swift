@@ -60,8 +60,13 @@ final class MacShellViewModel: ObservableObject {
         runtime.onThreadStarted = { [weak self] threadID in
             Task { @MainActor in
                 guard let self else { return }
+                let continuedArchivedID = self.continuingArchivedSessionID
                 self.bindCurrentMessages(toSession: threadID)
-                if self.continuingArchivedSessionID != nil || !self.workspaceSessions.isEmpty {
+                // Continuing an archived transcript creates a real runtime
+                // thread; keep that new thread in the workspace section.
+                if continuedArchivedID != nil {
+                    self.saveSessionToWorkspace(id: threadID)
+                } else if self.shouldAutoSaveNewSessionsToWorkspace {
                     self.saveSessionToWorkspace(id: threadID)
                 }
             }
@@ -138,6 +143,10 @@ final class MacShellViewModel: ObservableObject {
     private var continuingArchivedSessionID: String?
     /// Tracks how much of the streaming text has been scanned for steps.
     private var parsedTextLength = 0
+    /// Returns the session ID that is currently streaming, or nil if idle.
+    var streamingSessionID: String? {
+        streamingMessageID != nil ? activeRunID : nil
+    }
     let navItems: [NavItem] = [
         NavItem(title: "Codex", symbol: "plus.bubble"),
         NavItem(title: "Sessions", symbol: "clock"),
@@ -145,12 +154,39 @@ final class MacShellViewModel: ObservableObject {
         NavItem(title: "Settings", symbol: "gearshape")
     ]
 
-    /// Session IDs saved to workspace (mutually exclusive with active list).
-    /// Uses @AppStorage so SwiftUI observes changes and re-renders the sidebar.
-    @AppStorage("savedSessionIDs") private var _savedSessionIDsData: Data = Data()
+    /// Session IDs saved to the current workspace (mutually exclusive with active list).
+    /// The storage key is workspace-scoped; using one global key made sessions
+    /// from different folders bleed into each other's sidebar groups.
+    private let legacySavedSessionIDsKey = "savedSessionIDs"
     private var savedSessionIDs: Set<String> {
-        get { (try? JSONDecoder().decode(Set<String>.self, from: _savedSessionIDsData)) ?? [] }
-        set { _savedSessionIDsData = (try? JSONEncoder().encode(newValue)) ?? Data() }
+        get {
+            guard let data = UserDefaults.standard.data(forKey: savedSessionIDsStorageKey) else {
+                return []
+            }
+            return (try? JSONDecoder().decode(Set<String>.self, from: data)) ?? []
+        }
+        set {
+            let data = (try? JSONEncoder().encode(newValue)) ?? Data()
+            UserDefaults.standard.set(data, forKey: savedSessionIDsStorageKey)
+            objectWillChange.send()
+        }
+    }
+
+    private var savedSessionIDsStorageKey: String {
+        "savedSessionIDs.\(Self.workspaceStorageComponent(for: workspaceCWD))"
+    }
+
+    private var shouldAutoSaveNewSessionsToWorkspace: Bool {
+        !savedSessionIDs.isEmpty || !archivedSessionItems.isEmpty
+    }
+
+    private static func workspaceStorageComponent(for path: String) -> String {
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        let encoded = Data(normalized.utf8).base64EncodedString()
+        return encoded
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
     }
 
     /// Runtime sessions plus local archived transcripts.
@@ -165,20 +201,32 @@ final class MacShellViewModel: ObservableObject {
             )
         }
         let runtimeIDs = Set(runtime.sessions.map(\.sessionID))
-        return runtimeItems + archivedSessionItems.filter { !runtimeIDs.contains($0.id) }
+        let result = runtimeItems + archivedSessionItems.filter { !runtimeIDs.contains($0.id) }
+        return result
     }
 
     /// Sessions NOT saved to workspace (shown in "会话" list).
     var activeSessions: [SessionListItem] {
-        allSessionItems.filter { !savedSessionIDs.contains($0.id) }
+        let grouping = workspaceSessionGrouper
+        return allSessionItems.filter { !grouping.isWorkspaceSession($0.id) }
     }
 
     /// Sessions saved to workspace (shown under "空间").
     var workspaceSessions: [SessionListItem] {
-        allSessionItems.filter { savedSessionIDs.contains($0.id) }
+        let grouping = workspaceSessionGrouper
+        return allSessionItems.filter { grouping.isWorkspaceSession($0.id) }
     }
 
     var displaySessions: [SessionListItem] { allSessionItems }
+
+    private var workspaceSessionGrouper: WorkspaceSessionGrouper {
+        WorkspaceSessionGrouper(
+            workspaceCWD: workspaceCWD,
+            savedSessionIDs: savedSessionIDs,
+            archivedSessionIDs: Set(archivedSessionItems.map(\.id)),
+            runtimeSessionCWDs: Dictionary(uniqueKeysWithValues: runtime.sessions.map { ($0.sessionID, $0.cwd) })
+        )
+    }
 
     @Published var messages: [ConversationMessage] = []
 
@@ -319,6 +367,12 @@ final class MacShellViewModel: ObservableObject {
         panel.directoryURL = URL(fileURLWithPath: workspaceCWD)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         workspaceCWD = url.path
+        runtime.clearCurrentThread()
+        runtime.sessions.removeAll()
+        archivedSessionItems = []
+        messageCache.clear()
+        messages = []
+        activeRunID = ""
         // Auto-load previous sessions, then start a fresh session
         loadPreviousSessionMessages()
         startNewSession()
@@ -329,6 +383,7 @@ final class MacShellViewModel: ObservableObject {
     func loadPreviousSessionMessages() {
         let archived = journal.loadArchivedSessions()
         let archivedIDs = Set(archived.map(\.sessionID))
+        migrateLegacySavedSessionsIfNeeded(existingSessionIDs: archivedIDs)
         guard !archived.isEmpty else {
             archivedSessionItems = []
             restoreSavedRuntimeSessions(archivedIDs: [])
@@ -344,6 +399,12 @@ final class MacShellViewModel: ObservableObject {
                 count: session.messages.count
             )
         }
+
+        // Auto-save ALL archived sessions to workspace — they belong to this project.
+        var allSaved = savedSessionIDs
+        for id in archivedIDs { allSaved.insert(id) }
+        savedSessionIDs = allSaved
+
         restoreSavedRuntimeSessions(archivedIDs: archivedIDs)
 
         // Load the most recent session's messages into the conversation view
@@ -386,6 +447,17 @@ final class MacShellViewModel: ObservableObject {
         var saved = savedSessionIDs
         saved.insert(id)
         savedSessionIDs = saved
+    }
+
+    private func migrateLegacySavedSessionsIfNeeded(existingSessionIDs: Set<String>) {
+        guard UserDefaults.standard.data(forKey: savedSessionIDsStorageKey) == nil else { return }
+        guard let legacyData = UserDefaults.standard.data(forKey: legacySavedSessionIDsKey),
+              let legacyIDs = try? JSONDecoder().decode(Set<String>.self, from: legacyData)
+        else {
+            savedSessionIDs = []
+            return
+        }
+        savedSessionIDs = legacyIDs.intersection(existingSessionIDs)
     }
 
     /// Sandbox for thread/start. Codex app-server 0.141.0 expects kebab-case.
@@ -849,7 +921,14 @@ final class MacShellViewModel: ObservableObject {
 
             let currentText = turn.assistantText
             if currentText.count > lastAssistantTextLength || turn.isCompleted {
+                let newDelta = currentText.count > lastAssistantTextLength
+                    ? String(currentText[currentText.index(currentText.startIndex, offsetBy: lastAssistantTextLength)...])
+                    : ""
                 lastAssistantTextLength = currentText.count
+                // Log raw delta for debugging parser patterns
+                if !newDelta.isEmpty {
+                    print("[Stream] delta: \(newDelta.prefix(200))")
+                }
                 if let idx = messages.lastIndex(where: { $0.id == streamID }) {
                     let displayText = currentText.isEmpty ? "…" : currentText
                     print("[Stream] updating placeholder: count=\(currentText.count) completed=\(turn.isCompleted)")
@@ -858,7 +937,7 @@ final class MacShellViewModel: ObservableObject {
                     let result = AssistantTextParser.extractNewSteps(from: currentText, previousLength: parsedTextLength)
                     parsedTextLength = result.scannedLength
                     let existingSteps = messages[idx].steps
-                    let mergedSteps = existingSteps + result.steps.filter { newStep in !existingSteps.contains(where: { $0.kind == newStep.kind && $0.title == newStep.title }) }
+                    let mergedSteps = mergeSteps(existingSteps, with: result.steps)
 
                     replaceMessage(at: idx, with: ConversationMessage(
                         id: streamID,
@@ -900,19 +979,25 @@ final class MacShellViewModel: ObservableObject {
             return
         }
         let existing = messages[idx]
-        var merged = existing.steps
-        // Only append steps we don't already have (match by kind to avoid duplicates)
-        for step in steps {
-            if !merged.contains(where: { $0.kind == step.kind && $0.title == step.title }) {
-                merged.append(step)
-            }
-        }
+        let merged = mergeSteps(existing.steps, with: steps)
         replaceMessage(at: idx, with: ConversationMessage(
             id: streamID,
             role: existing.role,
             text: existing.text,
             steps: merged
         ))
+    }
+
+    private func mergeSteps(_ existing: [TurnStep], with incoming: [TurnStep]) -> [TurnStep] {
+        var merged = existing
+        for step in incoming {
+            if let index = merged.firstIndex(where: { $0.id == step.id }) {
+                merged[index] = step
+            } else {
+                merged.append(step)
+            }
+        }
+        return merged
     }
 
     private func handleLatestTurnID(_ turnID: String?) {
@@ -1108,6 +1193,38 @@ struct SessionMessageCache<Message> {
 
     func messages(for sessionID: String) -> [Message] {
         histories[sessionID] ?? []
+    }
+
+    mutating func clear() {
+        histories.removeAll()
+        pendingNewSession = nil
+    }
+}
+
+struct WorkspaceSessionGrouper {
+    let workspaceCWD: String
+    let savedSessionIDs: Set<String>
+    let archivedSessionIDs: Set<String>
+    let runtimeSessionCWDs: [String: String?]
+
+    private var isWorkspaceGroupingActive: Bool {
+        !savedSessionIDs.isEmpty || !archivedSessionIDs.isEmpty
+    }
+
+    func isWorkspaceSession(_ sessionID: String) -> Bool {
+        if savedSessionIDs.contains(sessionID) || archivedSessionIDs.contains(sessionID) {
+            return true
+        }
+        guard isWorkspaceGroupingActive,
+              let cwd = runtimeSessionCWDs[sessionID] ?? nil
+        else {
+            return false
+        }
+        return Self.normalizedPath(cwd) == Self.normalizedPath(workspaceCWD)
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 }
 
