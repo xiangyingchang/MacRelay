@@ -10,15 +10,6 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Toggle button
-            HStack {
-                Spacer()
-                IconOnlyButton(systemName: "sidebar.left", action: toggleSidebar)
-            }
-            .padding(.trailing, 6)
-            .padding(.top, 5)
-            .ignoresSafeArea(edges: .top)
-
             // New task button
             NewTaskButton(action: viewModel.startNewSession)
                 .padding(.horizontal, 10)
@@ -268,18 +259,25 @@ struct CollapsedSidebar: View {
     let toggleSidebar: () -> Void
 
     var body: some View {
-        VStack {
-            HStack(alignment: .top) {
-                Color.clear.frame(width: 62)
-                IconOnlyButton(systemName: "sidebar.right", action: toggleSidebar)
-                Spacer()
-            }
-            .padding(.top, 5)
-            Spacer()
+        Color.clear
+            .frame(width: 0)
+    }
+}
+
+// MARK: - Sidebar Chrome Toggle
+struct SidebarChromeToggle: View {
+    let systemName: String
+    let centerX: CGFloat
+    let action: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            IconOnlyButton(systemName: systemName, chrome: .transparent, action: action)
+                .position(x: centerX, y: 16)
         }
-        .frame(width: 100)
+        .frame(height: 36)
         .ignoresSafeArea(edges: .top)
-        .background(Color.clear)
     }
 }
 
@@ -329,6 +327,7 @@ struct PhonePairingPopover: View {
 
     var body: some View {
         let running = viewModel.relayServerRunning
+        let phoneConnected = viewModel.relayPhoneConnected
 
         VStack(spacing: 0) {
             // Header
@@ -337,10 +336,14 @@ struct PhonePairingPopover: View {
                     Text("手机配对")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.fg)
-                    if running {
+                    if phoneConnected {
                         Text("已连接")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(Theme.success)
+                    } else if running {
+                        Text("等待手机扫码")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.muted)
                     }
                 }
                 Spacer()
@@ -605,4 +608,3 @@ struct SettingsPopover: View {
         .overlay(Rectangle().fill(Theme.border).frame(width: 1), alignment: .trailing)
     }
 }
-

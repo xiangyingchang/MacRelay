@@ -105,6 +105,7 @@ final class MacShellViewModel: ObservableObject {
     @Published private(set) var relayEventCount = 0
     @Published private(set) var relayStatusText = "Relay idle"
     @Published private(set) var relayServerRunning = false
+    @Published private(set) var relayPhoneConnected = false
     @Published private(set) var relayServerPort: UInt16 = 0
     @Published private(set) var relayServerLastError: String?
     @Published private(set) var relayServerConfiguredToStart: Bool
@@ -794,6 +795,12 @@ final class MacShellViewModel: ObservableObject {
                 pairingToken: relayHTTPServer.token,
                 commandDispatcher: dispatcher
             )
+            // Track phone connection state via WebSocket auth count
+            wsServer.onAuthenticatedCountChanged = { [weak self] count in
+                Task { @MainActor in
+                    self?.relayPhoneConnected = count > 0
+                }
+            }
             try wsServer.start(host: relayServerHost, port: 0)
             _ = wsServer.waitUntilReady(timeout: 2)
             relayWSServer = wsServer
@@ -826,6 +833,7 @@ final class MacShellViewModel: ObservableObject {
         relayWSServer?.stop()
         relayWSServer = nil
         relayServerRunning = false
+        relayPhoneConnected = false
         relayServerPort = 0
         relayServerConfiguredToStart = false
         if persistConfigurationChange {

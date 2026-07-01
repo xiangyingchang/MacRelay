@@ -15,6 +15,11 @@ struct MacShellView: View {
     private let minSidebar: Double = 180
     private let maxSidebar: Double = 400
     private let minInspector: Double = 200
+    /// Button center‑X: fixed near traffic lights when collapsed, at sidebar's
+    /// right edge (just inside the divider) when expanded.
+    private var toggleCenterX: CGFloat {
+        sidebarVisible ? sidebarWidth - 16 : 84
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -43,6 +48,14 @@ struct MacShellView: View {
             MainWorkspace(viewModel: viewModel)
                 .layoutPriority(1)
         }
+        .overlay(alignment: .topLeading) {
+            SidebarChromeToggle(
+                systemName: sidebarVisible ? "sidebar.left" : "sidebar.right",
+                centerX: toggleCenterX,
+                action: { sidebarVisible.toggle() }
+            )
+        }
+        .animation(.smooth(duration: 0.18), value: sidebarVisible)
         .onAppear { sidebarWidth = storedSidebarWidth }
         .background(Theme.bg)
         .preferredColorScheme(isLightTheme ? .light : .dark)

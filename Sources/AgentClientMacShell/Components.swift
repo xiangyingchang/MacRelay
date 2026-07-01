@@ -83,11 +83,18 @@ struct AppMark: View {
 
 // MARK: - Icon Button
 struct IconOnlyButton: View {
+    enum Chrome {
+        case filled
+        case transparent
+    }
+
     let systemName: String
     let action: () -> Void
+    let chrome: Chrome
 
-    init(systemName: String, action: @escaping () -> Void = {}) {
+    init(systemName: String, chrome: Chrome = .filled, action: @escaping () -> Void = {}) {
         self.systemName = systemName
+        self.chrome = chrome
         self.action = action
     }
 
@@ -99,12 +106,30 @@ struct IconOnlyButton: View {
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
-        .background(Theme.surface)
-        .overlay(
+        .background(background)
+        .overlay(border)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        switch chrome {
+        case .filled:
+            Theme.surface
+        case .transparent:
+            Color.clear
+        }
+    }
+
+    @ViewBuilder
+    private var border: some View {
+        switch chrome {
+        case .filled:
             RoundedRectangle(cornerRadius: Theme.radiusSm)
                 .stroke(Theme.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
+        case .transparent:
+            EmptyView()
+        }
     }
 }
 

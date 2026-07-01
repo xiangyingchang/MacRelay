@@ -18,6 +18,14 @@ public final class MacRelayWebSocketServer {
     private var connectionAuthenticated: [ObjectIdentifier: Bool] = [:]
     private var readySemaphore: DispatchSemaphore?
     private var failedStartError: NWError?
+    /// Called on the internal queue when the number of authenticated connections changes.
+    /// Parameter is the current count of authenticated connections.
+    public var onAuthenticatedCountChanged: ((Int) -> Void)?
+
+    /// Number of currently authenticated phone connections.
+    public var authenticatedCount: Int {
+        queue.sync { connectionAuthenticated.values.filter { $0 }.count }
+    }
 
     /// Broadcast a data blob to all authenticated connections.
     public func broadcast(data: Data) {
@@ -99,11 +107,18 @@ public final class MacRelayWebSocketServer {
         listener = nil
         failedStartError = nil
         readySemaphore = nil
+        onAuthenticatedCountChanged?(0)
+    }
+
+    private func setAuthenticated(_ connection: NWConnection, _ value: Bool) {
+        connectionAuthenticated[ObjectIdentifier(connection)] = value
+        let count = connectionAuthenticated.values.filter { $0 }.count
+        onAuthenticatedCountChanged?(count)
     }
 
     private func handle(_ connection: NWConnection) {
         connections.append(connection)
-        connectionAuthenticated[ObjectIdentifier(connection)] = !isAuthEnabled
+        setAuthenticated(connection, !isAuthEnabled)
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             guard let self, let connection else { return }
             switch state {
@@ -189,7 +204,7 @@ public final class MacRelayWebSocketServer {
                     // Find device secret from trust store and verify
                     let device = store.list().first(where: { $0.deviceID == deviceID })
                     if let device, nonceManager.verify(deviceID: deviceID, secret: device.deviceSecret, challengeResponse: challengeResponse) {
-                        connectionAuthenticated[ObjectIdentifier(connection)] = true
+                        setAuthenticated(connection, true)
                         return try encode(RelayEnvelope(
                             type: "mac-relay.authenticated",
                             payload: ["status": "ok", "method": "device-challenge"] as [String: String]
@@ -209,7 +224,7 @@ public final class MacRelayWebSocketServer {
                 // Legacy static secret fallback
                 if let deviceSecret = payload["deviceSecret"] as? String,
                    store.isTrusted(deviceID: deviceID, deviceSecret: deviceSecret) {
-                    connectionAuthenticated[ObjectIdentifier(connection)] = true
+                    setAuthenticated(connection, true)
                     return try encode(RelayEnvelope(
                         type: "mac-relay.authenticated",
                         payload: ["status": "ok", "method": "device-static"] as [String: String]
@@ -237,7 +252,7 @@ public final class MacRelayWebSocketServer {
                 return errorPayload
             }
 
-            connectionAuthenticated[ObjectIdentifier(connection)] = true
+            setAuthenticated(connection, true)
             return try encode(RelayEnvelope(
                 type: "mac-relay.authenticated",
                 payload: ["status": "ok", "method": "token"] as [String: String]
@@ -366,6 +381,8 @@ public final class MacRelayWebSocketServer {
     private func cancel(_ connection: NWConnection) {
         connectionAuthenticated.removeValue(forKey: ObjectIdentifier(connection))
         connections.removeAll { $0 === connection }
+        let count = connectionAuthenticated.values.filter { $0 }.count
+        onAuthenticatedCountChanged?(count)
         connection.cancel()
     }
 }

@@ -11,9 +11,7 @@ struct ChatWorkspace: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        if viewModel.messages.isEmpty && viewModel.pendingApproval == nil {
-                            EmptyConversationView()
-                        } else {
+                        if !viewModel.messages.isEmpty || viewModel.pendingApproval != nil {
                             ForEach(viewModel.messages) { message in
                                 MessageRow(message: message)
                                     .id(message.id)
@@ -47,20 +45,6 @@ struct ChatWorkspace: View {
             Composer(viewModel: viewModel)
         }
         .background(Theme.bg)
-    }
-}
-
-// MARK: - Empty State
-struct EmptyConversationView: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            Text("说说你在想什么")
-                .font(.system(size: 15))
-                .foregroundStyle(Theme.muted)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 
