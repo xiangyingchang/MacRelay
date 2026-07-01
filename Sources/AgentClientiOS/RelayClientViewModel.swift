@@ -18,6 +18,7 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var draftText = ""
     @Published public var isSending = false
     @Published public var availableSessions: [RelaySessionInfoPayload] = []
+    @Published public var workspaceSessions: [RelaySessionInfoPayload] = []
     @Published public var selectedSessionID: String?
     @Published public var sessionFilterText = ""
     /// Toolbar state — synced from snapshot on refresh

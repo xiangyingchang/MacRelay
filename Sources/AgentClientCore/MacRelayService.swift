@@ -13,6 +13,8 @@ public final class MacRelayService {
     /// These are not part of the agent runtime state but need to sync to iOS.
     public var planMode: Bool?
     public var permissionMode: String?
+    public var model: String?
+    public var effort: String?
 
     private let reducer = SessionStateReducer()
     private let sequence: RelaySequence
@@ -94,6 +96,8 @@ public final class MacRelayService {
         // Inject UI settings that are not in the agent runtime snapshot
         session.planMode = planMode
         session.permissionMode = permissionMode
+        if let model { session.model = model }
+        if let effort { session.effort = effort }
         return RelaySnapshotPayload(
             activeSessionID: snapshot.threadID,
             session: session,

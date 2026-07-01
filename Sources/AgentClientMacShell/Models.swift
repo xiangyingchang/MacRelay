@@ -1091,16 +1091,29 @@ final class MacShellViewModel: ObservableObject {
             relaySnapshot = relayService.snapshotEnvelope().payload
             relayEventCount = relayService.eventCount
             relayStatusText = "relay seq=\(relaySnapshot.lastEventSeq) events=\(relayEventCount)"
-            // Sync UI settings to relay service so broadcasts include planMode/permissionMode
+            // Sync UI settings to relay service so broadcasts include model/effort/planMode
             relayService.planMode = planModeEnabled
             relayService.permissionMode = selectedPermissionMode
+            relayService.model = selectedModel
+            relayService.effort = selectedEffort
             // Active push to all connected WebSocket clients
             var snapshotEnvelope = relayService.snapshotEnvelope()
-            // Build full session list: runtime sessions + archived sessions
-            var allSessions = runtime.sessions
+            // Build session list grouped by workspace: active vs workspace sections
+            var activeSessions: [RelaySessionInfoPayload] = []
+            var workspaceSessions: [RelaySessionInfoPayload] = []
+            let saved = savedSessionIDs
+            // Runtime sessions: active (not saved) go to "会话", saved go to "空间"
+            for s in runtime.sessions {
+                if saved.contains(s.sessionID) {
+                    workspaceSessions.append(s)
+                } else {
+                    activeSessions.append(s)
+                }
+            }
+            // Archived sessions: all go to workspace section
             for item in archivedSessionItems {
-                if !allSessions.contains(where: { $0.sessionID == item.id }) {
-                    allSessions.append(RelaySessionInfoPayload(
+                if !runtime.sessions.contains(where: { $0.sessionID == item.id }) {
+                    workspaceSessions.append(RelaySessionInfoPayload(
                         sessionID: item.id,
                         cwd: workspaceCWD,
                         model: "",
@@ -1111,10 +1124,11 @@ final class MacShellViewModel: ObservableObject {
                     ))
                 }
             }
-            snapshotEnvelope.payload.availableSessions = allSessions
+            snapshotEnvelope.payload.availableSessions = activeSessions
+            snapshotEnvelope.payload.workspaceSessions = workspaceSessions
             if let data = try? JSONEncoder().encode(snapshotEnvelope) {
                 relayWSServer?.broadcast(data: data)
-                print("[Relay] broadcast snapshot seq=\(relaySnapshot.lastEventSeq) type=\(events.last?.type ?? "?")")
+                print("[Relay] broadcast snapshot seq=\(relaySnapshot.lastEventSeq) active=\(activeSessions.count) ws=\(workspaceSessions.count)")
             }
         } catch {
             relayStatusText = "relay error: \(error)"

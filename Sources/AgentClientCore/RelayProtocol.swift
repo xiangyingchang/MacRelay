@@ -99,6 +99,7 @@ public struct RelaySnapshotPayload: Codable {
     public var pendingApprovals: [RelayApprovalPayload]
     public var lastEventSeq: UInt64
     public var availableSessions: [RelaySessionInfoPayload]?
+    public var workspaceSessions: [RelaySessionInfoPayload]?
 
     public init(
         activeSessionID: String?,
@@ -106,7 +107,8 @@ public struct RelaySnapshotPayload: Codable {
         connection: ConnectionSnapshotPayload,
         pendingApprovals: [RelayApprovalPayload],
         lastEventSeq: UInt64,
-        availableSessions: [RelaySessionInfoPayload]? = nil
+        availableSessions: [RelaySessionInfoPayload]? = nil,
+        workspaceSessions: [RelaySessionInfoPayload]? = nil
     ) {
         self.activeSessionID = activeSessionID
         self.session = session
@@ -114,6 +116,7 @@ public struct RelaySnapshotPayload: Codable {
         self.pendingApprovals = pendingApprovals
         self.lastEventSeq = lastEventSeq
         self.availableSessions = availableSessions
+        self.workspaceSessions = workspaceSessions
     }
 }
 

@@ -55,6 +55,7 @@ let package = Package(
         .executableTarget(
             name: "MacRelayiOS",
             dependencies: ["AgentClientIO", "AgentClientiOS"],
+            path: "Apps/MacRelayiOSApp/Sources",
             exclude: ["Info.plist"]
         ),
         .executableTarget(
