@@ -63,9 +63,11 @@ public final class RelayClientViewModel: ObservableObject {
         wsClient.onSnapshot = { [weak self] envelope in
             guard let self else { return }
             let sessions = envelope.payload.availableSessions ?? []
-            print("[iOS] onSnapshot: availableSessions count=\(sessions.count)")
+            let wsSessions = envelope.payload.workspaceSessions ?? []
+            print("[iOS] onSnapshot: sessions=\(sessions.count) ws=\(wsSessions.count)")
             self.sessionSnapshot = envelope.payload.session
             self.availableSessions = sessions
+            self.workspaceSessions = wsSessions
             self.syncToolbarFromSnapshot()
             self.heartbeatOnline = envelope.payload.connection.isOnline
             self.lastErrorCode = nil
