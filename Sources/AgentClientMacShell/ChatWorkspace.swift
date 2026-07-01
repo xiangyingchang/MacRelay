@@ -425,6 +425,7 @@ struct Composer: View {
 
                 SessionMenu(label: "Model", title: viewModel.selectedModel, items: viewModel.modelOptions, selection: $viewModel.selectedModel, onChange: viewModel.recordSettingsUpdate)
                 SessionMenu(label: "Effort", title: viewModel.selectedEffort.capitalized, items: viewModel.efforts, selection: $viewModel.selectedEffort, onChange: viewModel.recordSettingsUpdate)
+                SessionMenu(label: "Access", title: viewModel.selectedPermissionMode, items: viewModel.permissions, selection: $viewModel.selectedPermissionMode, onChange: viewModel.recordSettingsUpdate)
 
                 Spacer()
 

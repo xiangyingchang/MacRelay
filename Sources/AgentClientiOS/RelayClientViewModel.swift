@@ -171,6 +171,12 @@ public final class RelayClientViewModel: ObservableObject {
         if let effort = snap.effort, !effort.isEmpty {
             selectedEffort = effort
         }
+        if let planMode = snap.planMode {
+            planModeEnabled = planMode
+        }
+        if let permissionMode = snap.permissionMode, !permissionMode.isEmpty {
+            self.permissionMode = permissionMode
+        }
     }
 
     /// Models available from the Mac snapshot (populated by Codex model/list).

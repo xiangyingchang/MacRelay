@@ -123,6 +123,8 @@ public struct RelaySessionSnapshotPayload: Codable {
     public var status: String
     public var model: String?
     public var effort: String?
+    public var planMode: Bool?
+    public var permissionMode: String?
     public var assistantText: String
     public var userMessage: String?
     public var turns: [RelayTurnSnapshotPayload]
@@ -137,6 +139,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         case status
         case model
         case effort
+        case planMode
+        case permissionMode
         case assistantText
         case userMessage
         case turns
@@ -152,6 +156,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         status: String,
         model: String?,
         effort: String?,
+        planMode: Bool? = nil,
+        permissionMode: String? = nil,
         assistantText: String,
         userMessage: String? = nil,
         turns: [RelayTurnSnapshotPayload] = [],
@@ -165,6 +171,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.status = status
         self.model = model
         self.effort = effort
+        self.planMode = planMode
+        self.permissionMode = permissionMode
         self.assistantText = assistantText
         self.userMessage = userMessage
         self.turns = turns
@@ -180,6 +188,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.status = snapshot.status.rawValue
         self.model = snapshot.settings?.model
         self.effort = snapshot.settings?.effort
+        self.planMode = nil
+        self.permissionMode = nil
         self.assistantText = snapshot.activeTurn?.assistantText ?? ""
         self.userMessage = snapshot.activeTurn?.userMessage
         var turns = snapshot.completedTurns.map(RelayTurnSnapshotPayload.init)
@@ -200,6 +210,8 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.status = try container.decode(String.self, forKey: .status)
         self.model = try container.decodeIfPresent(String.self, forKey: .model)
         self.effort = try container.decodeIfPresent(String.self, forKey: .effort)
+        self.planMode = try container.decodeIfPresent(Bool.self, forKey: .planMode)
+        self.permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         self.assistantText = try container.decode(String.self, forKey: .assistantText)
         self.userMessage = try container.decodeIfPresent(String.self, forKey: .userMessage)
         self.turns = try container.decodeIfPresent([RelayTurnSnapshotPayload].self, forKey: .turns) ?? []

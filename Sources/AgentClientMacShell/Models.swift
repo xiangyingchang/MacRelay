@@ -677,6 +677,30 @@ final class MacShellViewModel: ObservableObject {
         }
 
         record(.settingsUpdate, "session.settings.update model=\(selectedModel) effort=\(selectedEffort) plan=\(planModeEnabled) access=\(selectedPermissionMode)")
+
+        // Sync UI settings to relay service for broadcast to iOS clients
+        relayService.planMode = planModeEnabled
+        relayService.permissionMode = selectedPermissionMode
+        // Broadcast updated snapshot so iOS picks up the changes immediately
+        var snapshotEnvelope = relayService.snapshotEnvelope()
+        var allSessions = runtime.sessions
+        for item in archivedSessionItems {
+            if !allSessions.contains(where: { $0.sessionID == item.id }) {
+                allSessions.append(RelaySessionInfoPayload(
+                    sessionID: item.id,
+                    cwd: workspaceCWD,
+                    model: "",
+                    effort: "",
+                    status: "completed",
+                    createdAt: nil,
+                    title: item.title
+                ))
+            }
+        }
+        snapshotEnvelope.payload.availableSessions = allSessions
+        if let data = try? JSONEncoder().encode(snapshotEnvelope) {
+            relayWSServer?.broadcast(data: data)
+        }
     }
 
     func refreshCodexDetection() {
@@ -799,7 +823,16 @@ final class MacShellViewModel: ObservableObject {
             try relayHTTPServer.start(host: relayServerHost, port: 0)
             let dispatcher = MacRelayRuntimeCommandDispatcher(
                 runtime: runtime,
-                defaultCWD: { self.projectCWD }
+                defaultCWD: { self.projectCWD },
+                onSettingsUpdate: { [weak self] planMode, permissionMode in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        if let planMode { self.planModeEnabled = planMode }
+                        if let permissionMode { self.selectedPermissionMode = permissionMode }
+                        // Persist and broadcast updated settings to iOS
+                        self.recordSettingsUpdate()
+                    }
+                }
             )
             let wsServer = MacRelayWebSocketServer(
                 relayService: relayService,
@@ -1054,6 +1087,9 @@ final class MacShellViewModel: ObservableObject {
             relaySnapshot = relayService.snapshotEnvelope().payload
             relayEventCount = relayService.eventCount
             relayStatusText = "relay seq=\(relaySnapshot.lastEventSeq) events=\(relayEventCount)"
+            // Sync UI settings to relay service so broadcasts include planMode/permissionMode
+            relayService.planMode = planModeEnabled
+            relayService.permissionMode = selectedPermissionMode
             // Active push to all connected WebSocket clients
             var snapshotEnvelope = relayService.snapshotEnvelope()
             // Build full session list: runtime sessions + archived sessions

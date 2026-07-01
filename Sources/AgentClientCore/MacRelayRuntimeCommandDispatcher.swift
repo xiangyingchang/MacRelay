@@ -104,9 +104,18 @@ public struct MacRelayRuntimeCommandDispatcher {
     private let runtime: AgentRuntime
     private let defaultCWD: () -> String
 
-    public init(runtime: AgentRuntime, defaultCWD: @escaping () -> String) {
+    /// Called when iOS sends settingsUpdate with planMode/permissionMode.
+    /// The view model uses this to keep its local state in sync.
+    public var onSettingsUpdate: ((_ planMode: Bool?, _ permissionMode: String?) -> Void)?
+
+    public init(
+        runtime: AgentRuntime,
+        defaultCWD: @escaping () -> String,
+        onSettingsUpdate: ((_ planMode: Bool?, _ permissionMode: String?) -> Void)? = nil
+    ) {
         self.runtime = runtime
         self.defaultCWD = defaultCWD
+        self.onSettingsUpdate = onSettingsUpdate
     }
 
     /// Prefer the selected session's cwd when one is active.
@@ -176,6 +185,8 @@ public struct MacRelayRuntimeCommandDispatcher {
                 approvalPolicy: payload.approvalPolicy ?? payload.permissionMode.map(approvalPolicy(forPermissionMode:)),
                 sandboxPolicy: sandbox
             )
+            // Notify view model about UI-level settings (planMode, permissionMode)
+            onSettingsUpdate?(payload.planMode, payload.permissionMode)
             return .dispatched("session.settings.update")
 
         case .approvalResolve:

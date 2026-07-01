@@ -9,6 +9,11 @@ public enum MacRelayCommandResult {
 public final class MacRelayService {
     public private(set) var snapshot = SessionSnapshot()
 
+    /// UI settings injected by the view model for snapshot broadcasts.
+    /// These are not part of the agent runtime state but need to sync to iOS.
+    public var planMode: Bool?
+    public var permissionMode: String?
+
     private let reducer = SessionStateReducer()
     private let sequence: RelaySequence
     private let store: EventStore
@@ -85,9 +90,13 @@ public final class MacRelayService {
     private func snapshotPayload() -> RelaySnapshotPayload {
         var connection = connection
         connection.lastSeenSeq = newestSeq
+        var session = RelaySessionSnapshotPayload(snapshot: snapshot)
+        // Inject UI settings that are not in the agent runtime snapshot
+        session.planMode = planMode
+        session.permissionMode = permissionMode
         return RelaySnapshotPayload(
             activeSessionID: snapshot.threadID,
-            session: RelaySessionSnapshotPayload(snapshot: snapshot),
+            session: session,
             connection: connection,
             pendingApprovals: snapshot.pendingApprovals.values.map(RelayApprovalPayload.init),
             lastEventSeq: newestSeq
