@@ -13,6 +13,9 @@ struct MacRelayiOSAppEntry: App {
 
                 SessionWorkspaceView(viewModel: viewModel)
                     .tabItem { Label("Session", systemImage: "rectangle.3.group") }
+
+                SettingsView(viewModel: viewModel)
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
             }
             .onOpenURL { url in
                 Task {

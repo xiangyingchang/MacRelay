@@ -319,59 +319,125 @@ public struct PairingView: View {
     #endif
 }
 
-// MARK: - Connection Status (used by app directly)
+// MARK: - Settings View (replaces bare ConnectionStatusView)
 
-public struct ConnectionStatusView: View {
+public struct SettingsView: View {
     @ObservedObject var viewModel: RelayClientViewModel
+
     public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
+
+    private let providers = ["Codex CLI", "Claude Code"]
+
     public var body: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Circle()
-                    .fill(viewModel.heartbeatOnline ? .green : viewModel.currentState == .authFailed ? .red : .orange)
-                    .frame(width: 8, height: 8)
-                Text(viewModel.connectionStatus).font(.subheadline)
-                Spacer()
-                if viewModel.isConnecting { ProgressView().scaleEffect(0.7) }
-                Button("Refresh") { Task { try? await viewModel.refresh() } }.buttonStyle(.bordered)
-            }
-            .padding(.horizontal)
-
-            HStack {
-                if viewModel.currentState == .authFailed || viewModel.currentState == .offline {
-                    Button("Reconnect") { Task { await viewModel.reconnect() } }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                }
-                if viewModel.currentState == .authFailed, viewModel.hasCredentials {
-                    Button("Clear Credentials", role: .destructive) {
-                        viewModel.clearPairing()
+        NavigationStack {
+            Form {
+                // MARK: Provider
+                Section {
+                    Picker("Provider", selection: $viewModel.selectedProvider) {
+                        ForEach(providers, id: \.self) { p in
+                            Text(p).tag(p)
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .pickerStyle(.menu)
+                    .onChange(of: viewModel.selectedProvider) { _, _ in
+                        sendProviderUpdate()
+                    }
+                    Text("Change the AI agent runtime on your Mac")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Label("Agent", systemImage: "square.stack.3d.up")
                 }
-                Spacer()
-            }
-            .padding(.horizontal)
 
-            if let errorCode = viewModel.lastErrorCode {
-                Text("Error: \(errorCode)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-            }
-            HStack {
-                if let lastHb = viewModel.lastHeartbeat {
-                    Text("Last hb: \(lastHb, style: .relative) ago")
-                        .font(.caption2).foregroundStyle(.secondary)
+                // MARK: Session defaults
+                Section {
+                    HStack {
+                        Text("Model")
+                        Spacer()
+                        Text(viewModel.selectedModel.isEmpty ? "—" : viewModel.selectedModel)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Effort")
+                        Spacer()
+                        Text(viewModel.selectedEffort.capitalized)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Mode")
+                        Spacer()
+                        Text(viewModel.planModeEnabled ? "Plan" : "Act")
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Access")
+                        Spacer()
+                        Text(viewModel.permissionMode)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Label("Session Defaults", systemImage: "gearshape")
+                } footer: {
+                    Text("These are set in the Session toolbar. Changing them here takes effect on next send.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                if viewModel.reconnectAttempt > 0 {
-                    Text("Attempt: \(viewModel.reconnectAttempt)")
-                        .font(.caption2).foregroundStyle(.orange)
+
+                // MARK: Connection
+                Section {
+                    HStack {
+                        Label("Status", systemImage: "antenna.radiowaves.left.and.right")
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(viewModel.heartbeatOnline ? Color.green : viewModel.currentState == .authFailed ? .red : .orange)
+                                .frame(width: 8, height: 8)
+                            Text(viewModel.connectionStatus)
+                                .font(.subheadline)
+                        }
+                    }
+                    if let lastHb = viewModel.lastHeartbeat {
+                        HStack {
+                            Text("Last heartbeat")
+                            Spacer()
+                            Text(lastHb, style: .relative)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Label("Connection", systemImage: "link")
                 }
-                Spacer()
+
+                // MARK: Error info
+                if let errorCode = viewModel.lastErrorCode {
+                    Section {
+                        Text(errorCode)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.red)
+                    } header: {
+                        Label("Last Error", systemImage: "exclamationmark.triangle")
+                    }
+                }
+
+                // MARK: Actions
+                Section {
+                    if viewModel.currentState == .authFailed || viewModel.currentState == .offline {
+                        Button(action: { Task { await viewModel.reconnect() } }) {
+                            Label("Reconnect", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    Button(role: .destructive, action: viewModel.clearPairing) {
+                        Label("Disconnect & Clear Pairing", systemImage: "link.badge.minus")
+                    }
+                }
             }
-            .padding(.horizontal)
+            .navigationTitle("Settings")
+        }
+    }
+
+    private func sendProviderUpdate() {
+        Task {
+            await viewModel.sendSettingsUpdate()
         }
     }
 }

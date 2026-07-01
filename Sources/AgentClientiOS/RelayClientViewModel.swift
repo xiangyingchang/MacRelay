@@ -25,6 +25,7 @@ public final class RelayClientViewModel: ObservableObject {
     @Published public var selectedEffort = "medium"
     @Published public var planModeEnabled = false
     @Published public var permissionMode = "Read Only"
+    @Published public var selectedProvider = "Codex CLI"
 
     public let stateMachine = MobileConnectionStateMachine()
     private let httpClient: RelayHTTPClient?
@@ -308,7 +309,8 @@ public final class RelayClientViewModel: ObservableObject {
             model: selectedModel.isEmpty ? nil : selectedModel,
             effort: selectedEffort,
             planMode: planModeEnabled,
-            permissionMode: permissionMode
+            permissionMode: permissionMode,
+            provider: selectedProvider
         )
         do {
             let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(

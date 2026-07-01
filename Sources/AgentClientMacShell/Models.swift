@@ -824,13 +824,17 @@ final class MacShellViewModel: ObservableObject {
             let dispatcher = MacRelayRuntimeCommandDispatcher(
                 runtime: runtime,
                 defaultCWD: { self.projectCWD },
-                onSettingsUpdate: { [weak self] planMode, permissionMode in
+                onSettingsUpdate: { [weak self] planMode, permissionMode, provider in
                     Task { @MainActor in
                         guard let self else { return }
                         if let planMode { self.planModeEnabled = planMode }
                         if let permissionMode { self.selectedPermissionMode = permissionMode }
-                        // Persist and broadcast updated settings to iOS
-                        self.recordSettingsUpdate()
+                        if let provider {
+                            self.switchProvider(to: provider)
+                        } else {
+                            // Persist and broadcast updated settings to iOS
+                            self.recordSettingsUpdate()
+                        }
                     }
                 }
             )

@@ -394,6 +394,7 @@ public struct RelaySettingsUpdateCommandPayload: Codable, Equatable {
     public var permissionMode: String?
     public var approvalPolicy: String?
     public var sandboxMode: String?
+    public var provider: String?
 
     public init(
         sessionID: String,
@@ -402,7 +403,8 @@ public struct RelaySettingsUpdateCommandPayload: Codable, Equatable {
         planMode: Bool? = nil,
         permissionMode: String? = nil,
         approvalPolicy: String? = nil,
-        sandboxMode: String? = nil
+        sandboxMode: String? = nil,
+        provider: String? = nil
     ) {
         self.sessionID = sessionID
         self.model = model
@@ -411,6 +413,7 @@ public struct RelaySettingsUpdateCommandPayload: Codable, Equatable {
         self.permissionMode = permissionMode
         self.approvalPolicy = approvalPolicy
         self.sandboxMode = sandboxMode
+        self.provider = provider
     }
 }
 
