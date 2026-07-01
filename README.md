@@ -5,13 +5,16 @@
 ## 功能
 
 - **双引擎支持**：Codex CLI 和 Claude Code 无缝切换
-- **会话管理**：创建、查看历史、搜索筛选、保存到工作区
+- **会话管理**：创建、查看历史、保存到工作区、按工作目录分组
+- **Agent 执行步骤**：实时展示 AI 的思考过程、工具调用、文件变更等步骤，折叠展示
+- **消息流式展示**：占位符 → streaming delta → 完成，实时更新
 - **消息同步**：Mac 与 iPhone 双向实时同步
 - **工作区日志**：每次对话自动记录到 `.macrelay/sessions/`
 - **空间记忆**：`.macrelay/memory.md` 累积项目上下文
 - **暗/亮主题**：Geist 设计系统，支持深色/浅色切换
-- **侧边栏折叠**：可拖拽调整宽度（180–400px）
-- **手机配对**：扫码连接，局域网实时通信
+- **侧边栏**：可拖拽调整宽度（180–400px），折叠按钮与红绿灯对齐
+- **手机配对**：扫码连接，局域网实时通信，真实连接状态显示
+- **工作目录选择**：支持切换项目工作区
 
 ## 快速开始
 
@@ -25,16 +28,30 @@
 cd macrelay-project
 swift build
 
-# 打包 .app bundle
-scripts/build-mac-shell-app.sh
-open .build/AgentClientMacShell.app
+# 打包 .app bundle 并启动
+APP=".build/AgentClientMacShell.app"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp .build/debug/AgentClientMacShell "$APP/Contents/MacOS/AgentClientMacShell"
+cat > "$APP/Contents/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>AgentClientMacShell</string>
+<key>CFBundleIdentifier</key><string>com.xiangyingchang.macrelay.macshell</string>
+<key>CFBundleName</key><string>AgentClientMacShell</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+</dict></plist>
+PLIST
+open "$APP"
 
 # iOS 模拟器
-scripts/build-ios.sh
-
-# iOS 真机（需要 Xcode + 个人证书）
-open Apps/MacRelayiOSApp/MacRelayiOSApp.xcodeproj
-# → 选 MacRelayiOSApp scheme → iPhone → Personal Team → ⌘R
+swift build --product MacRelayiOS
+# 或通过 Xcode 运行真机版本
+open */.xcodeproj
 ```
 
 ## 架构
