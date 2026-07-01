@@ -60,8 +60,10 @@ public final class RelayClientViewModel: ObservableObject {
         }
         wsClient.onSnapshot = { [weak self] envelope in
             guard let self else { return }
+            let sessions = envelope.payload.availableSessions ?? []
+            print("[iOS] onSnapshot: availableSessions count=\(sessions.count)")
             self.sessionSnapshot = envelope.payload.session
-            self.availableSessions = envelope.payload.availableSessions ?? []
+            self.availableSessions = sessions
             self.syncToolbarFromSnapshot()
             self.heartbeatOnline = envelope.payload.connection.isOnline
             self.lastErrorCode = nil
@@ -314,14 +316,19 @@ public final class RelayClientViewModel: ObservableObject {
 
     /// Fetch session list from Mac.
     public func fetchSessions() async {
-        guard stateMachine.state == .connected else { return }
+        guard stateMachine.state == .connected else { print("[iOS] fetchSessions: not connected"); return }
         do {
             let response: RelayEnvelope<[RelaySessionInfoPayload]> = try await wsClient.sendCommand(
                 type: .sessionList,
                 payload: [:] as [String: String]
             )
-            await MainActor.run { self.availableSessions = response.payload }
+            print("[iOS] fetchSessions received \(response.payload.count) sessions")
+            await MainActor.run {
+                self.availableSessions = response.payload
+                print("[iOS] availableSessions now \(self.availableSessions.count) items")
+            }
         } catch {
+            print("[iOS] fetchSessions error: \(error)")
             await MainActor.run { self.lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code }
         }
     }

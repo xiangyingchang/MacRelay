@@ -314,7 +314,9 @@ public final class MacRelayWebSocketServer {
                 guard let commandDispatcher else {
                     return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "remote commands not supported on this server", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
                 }
+                print("[WSServer] sessionList called")
                 let sessions = DispatchQueue.main.sync { commandDispatcher.listSessions() }
+                print("[WSServer] sessionList: returning (sessions.count) sessions: (sessions.map(.sessionID))")
                 let payload = RelayEnvelope(type: type, correlationID: id, payload: sessions)
                 return try encode(payload)
 
