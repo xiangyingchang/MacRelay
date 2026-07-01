@@ -831,6 +831,16 @@ final class MacShellViewModel: ObservableObject {
                         if let permissionMode { self.selectedPermissionMode = permissionMode }
                         if let provider {
                             self.switchProvider(to: provider)
+                            // Broadcast to iOS when new provider's model list arrives
+                            self.runtime.$modelNames
+                                .dropFirst()
+                                .filter { !$0.isEmpty }
+                                .first()
+                                .receive(on: RunLoop.main)
+                                .sink { [weak self] _ in
+                                    self?.recordSettingsUpdate()
+                                }
+                                .store(in: &self.cancellables)
                         } else {
                             // Persist and broadcast updated settings to iOS
                             self.recordSettingsUpdate()

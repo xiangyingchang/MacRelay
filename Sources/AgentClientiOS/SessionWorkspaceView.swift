@@ -312,42 +312,37 @@ struct SessionListView: View {
 
                 Divider()
 
-                // Session list
-                if viewModel.availableSessions.isEmpty {
+                // Session list — grouped: active ("会话") and workspace ("空间")
+                let hasActive = !viewModel.availableSessions.isEmpty
+                let hasWorkspace = !viewModel.workspaceSessions.isEmpty
+                if !hasActive && !hasWorkspace {
                     ContentUnavailableView(
                         "No Sessions",
                         systemImage: "rectangle.3.group",
                         description: Text("Active sessions will appear here when connected to Mac.")
                     )
-                } else if viewModel.filteredSessions.isEmpty {
-                    ContentUnavailableView(
-                        "No Matches",
-                        systemImage: "magnifyingglass",
-                        description: Text("No sessions match \"\(viewModel.sessionFilterText)\".")
-                    )
                 } else {
-                    List(viewModel.filteredSessions) { session in
-                        Button {
-                            Task {
-                                isLoading = true
-                                selectionError = nil
-                                do {
-                                    try await viewModel.selectSession(sessionID: session.sessionID)
-                                    isPresented = false
-                                } catch {
-                                    selectionError = error.localizedDescription
+                    List {
+                        if hasActive {
+                            Section("会话") {
+                                ForEach(viewModel.availableSessions) { session in
+                                    sessionRow(for: session)
                                 }
-                                isLoading = false
                             }
-                        } label: {
-                            SessionRow(
-                                session: session,
-                                isSelected: session.sessionID == viewModel.selectedSessionID
-                            )
                         }
-                        .disabled(isLoading)
+                        if hasWorkspace {
+                            Section("空间") {
+                                ForEach(viewModel.workspaceSessions) { session in
+                                    sessionRow(for: session)
+                                }
+                            }
+                        }
                     }
+                    #if os(iOS)
+                    .listStyle(.insetGrouped)
+                    #else
                     .listStyle(.plain)
+                    #endif
                 }
 
                 // Error state
@@ -383,7 +378,8 @@ struct SessionListView: View {
 
                     Spacer()
 
-                    Text("\(viewModel.availableSessions.count) session(s)")
+                    let total = viewModel.availableSessions.count + viewModel.workspaceSessions.count
+                    Text("\(total) session(s)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -401,6 +397,29 @@ struct SessionListView: View {
             }
             .task { await viewModel.fetchSessions() }
         }
+    }
+
+    @ViewBuilder
+    private func sessionRow(for session: RelaySessionInfoPayload) -> some View {
+        Button {
+            Task {
+                isLoading = true
+                selectionError = nil
+                do {
+                    try await viewModel.selectSession(sessionID: session.sessionID)
+                    isPresented = false
+                } catch {
+                    selectionError = error.localizedDescription
+                }
+                isLoading = false
+            }
+        } label: {
+            SessionRow(
+                session: session,
+                isSelected: session.sessionID == viewModel.selectedSessionID
+            )
+        }
+        .disabled(isLoading)
     }
 }
 

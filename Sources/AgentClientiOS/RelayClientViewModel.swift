@@ -150,6 +150,7 @@ public final class RelayClientViewModel: ObservableObject {
             let snap = try await wsClient.getSnapshot()
             sessionSnapshot = snap.payload.session
             availableSessions = snap.payload.availableSessions ?? []
+            workspaceSessions = snap.payload.workspaceSessions ?? []
             syncToolbarFromSnapshot()
             heartbeatOnline = true
             updateConversation()
@@ -329,14 +330,12 @@ public final class RelayClientViewModel: ObservableObject {
     public func fetchSessions() async {
         guard stateMachine.state == .connected else { print("[iOS] fetchSessions: not connected"); return }
         do {
-            let response: RelayEnvelope<[RelaySessionInfoPayload]> = try await wsClient.sendCommand(
-                type: .sessionList,
-                payload: [:] as [String: String]
-            )
-            print("[iOS] fetchSessions received \(response.payload.count) sessions")
+            // Use snapshot.get which includes both availableSessions and workspaceSessions
+            let snap = try await wsClient.getSnapshot()
             await MainActor.run {
-                self.availableSessions = response.payload
-                print("[iOS] availableSessions now \(self.availableSessions.count) items")
+                self.availableSessions = snap.payload.availableSessions ?? []
+                self.workspaceSessions = snap.payload.workspaceSessions ?? []
+                print("[iOS] fetchSessions: active=\(self.availableSessions.count) ws=\(self.workspaceSessions.count)")
             }
         } catch {
             print("[iOS] fetchSessions error: \(error)")
