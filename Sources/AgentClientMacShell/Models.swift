@@ -406,6 +406,17 @@ final class MacShellViewModel: ObservableObject {
         for id in archivedIDs { allSaved.insert(id) }
         savedSessionIDs = allSaved
 
+        // Register archived sessions in runtime so listSessions() returns them
+        // (used by iOS fetchSessions and WebSocket session.list handler).
+        for session in archived {
+            runtime.rememberSession(
+                sessionID: session.sessionID,
+                cwd: workspaceCWD,
+                title: session.messages.first(where: { $0.role == "User" })?.text,
+                status: "completed"
+            )
+        }
+
         restoreSavedRuntimeSessions(archivedIDs: archivedIDs)
 
         // Load the most recent session's messages into the conversation view
@@ -1045,10 +1056,22 @@ final class MacShellViewModel: ObservableObject {
             relayStatusText = "relay seq=\(relaySnapshot.lastEventSeq) events=\(relayEventCount)"
             // Active push to all connected WebSocket clients
             var snapshotEnvelope = relayService.snapshotEnvelope()
-            // Inject available sessions from runtime
-            if !runtime.sessions.isEmpty {
-                snapshotEnvelope.payload.availableSessions = runtime.sessions
+            // Build full session list: runtime sessions + archived sessions
+            var allSessions = runtime.sessions
+            for item in archivedSessionItems {
+                if !allSessions.contains(where: { $0.sessionID == item.id }) {
+                    allSessions.append(RelaySessionInfoPayload(
+                        sessionID: item.id,
+                        cwd: workspaceCWD,
+                        model: "",
+                        effort: "",
+                        status: "completed",
+                        createdAt: nil,
+                        title: item.title
+                    ))
+                }
             }
+            snapshotEnvelope.payload.availableSessions = allSessions
             if let data = try? JSONEncoder().encode(snapshotEnvelope) {
                 relayWSServer?.broadcast(data: data)
                 print("[Relay] broadcast snapshot seq=\(relaySnapshot.lastEventSeq) type=\(events.last?.type ?? "?")")

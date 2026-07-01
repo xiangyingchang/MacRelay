@@ -243,6 +243,10 @@ final class ClaudeCodeRuntime: AgentRuntime {
         statusText = "session.select sessionID=\(sessionID)"
     }
 
+    override func listSessions() -> [RelaySessionInfoPayload] {
+        sessions
+    }
+
     override func rememberSession(sessionID: String, cwd: String?, title: String?, status: String?) {
         if !sessions.contains(where: { $0.sessionID == sessionID }) {
             sessions.append(RelaySessionInfoPayload(

@@ -13,9 +13,6 @@ struct MacRelayiOSApp: App {
 
                 SessionWorkspaceView(viewModel: viewModel)
                     .tabItem { Label("Session", systemImage: "rectangle.split.2x1") }
-
-                ConnectionStatusView(viewModel: viewModel)
-                    .tabItem { Label("Status", systemImage: "antenna.radiowaves.left.and.right") }
             }
             .onOpenURL { url in
                 Task { try? await viewModel.claimFromURL(url) }

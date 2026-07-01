@@ -313,17 +313,16 @@ public final class RelayClientViewModel: ObservableObject {
     }
 
     /// Fetch session list from Mac.
-    public func fetchSessions() async -> [RelaySessionInfoPayload] {
-        guard stateMachine.state == .connected else { return [] }
+    public func fetchSessions() async {
+        guard stateMachine.state == .connected else { return }
         do {
             let response: RelayEnvelope<[RelaySessionInfoPayload]> = try await wsClient.sendCommand(
                 type: .sessionList,
                 payload: [:] as [String: String]
             )
-            return response.payload
+            await MainActor.run { self.availableSessions = response.payload }
         } catch {
-            lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code
-            return []
+            await MainActor.run { self.lastErrorCode = (error as? RelayClientError)?.code ?? RelayErrorCode.generalError.code }
         }
     }
 

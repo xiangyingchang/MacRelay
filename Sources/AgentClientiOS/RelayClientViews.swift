@@ -8,163 +8,257 @@ import UIKit
 
 public struct PairingView: View {
     @ObservedObject var viewModel: RelayClientViewModel
-    @State private var host = ""
-    @State private var portText = ""
     @State private var pairingInput = ""
     @State private var claimError: String?
     @State private var isClaimingPairing = false
-    @State private var showingScanner = false
+    @State private var showingPasteSheet = false
 
     public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
 
     public var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Pair with Mac")
-                            .font(.largeTitle.bold())
-                        Text(viewModel.connectionStatus)
-                            .font(.subheadline)
-                            .foregroundStyle(viewModel.heartbeatOnline ? .green : .secondary)
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Paste Pairing URI")
-                            .font(.headline)
-                        TextEditor(text: $pairingInput)
-                            .font(.system(size: 13, design: .monospaced))
-                            .frame(minHeight: 116)
-                            .padding(8)
-                            .background(Color.secondary.opacity(0.10))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 0.5)
-                            }
-                            .autocorrectionDisabled()
-
-                        HStack(spacing: 10) {
-                            Button {
-                                claimError = nil
-                                pastePairingInput()
-                            } label: {
-                                Label("Paste", systemImage: "doc.on.clipboard")
-                            }
-                            .buttonStyle(.bordered)
-
-                            #if os(iOS)
-                            Button {
-                                claimError = nil
-                                showingScanner = true
-                            } label: {
-                                Label("Scan QR", systemImage: "qrcode.viewfinder")
-                            }
-                            .buttonStyle(.bordered)
-                            #endif
-                        }
-
-                        Button {
-                            claimCurrentInput()
-                        } label: {
-                            Label(viewModel.isConnecting || isClaimingPairing ? "Connecting..." : "Claim & Connect", systemImage: "link")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isConnecting || isClaimingPairing)
-
-                        if let claimError {
-                            Text(claimError)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .textSelection(.enabled)
-                        }
-                    }
-                    .padding()
-                    .background(Color.secondary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Manual Host")
-                            .font(.headline)
-                        TextField("Mac LAN IP, e.g. 192.168.1.8", text: $host)
-                            .textFieldStyle(.roundedBorder)
-                            .autocorrectionDisabled()
-                        TextField("Port", text: $portText)
-                            .textFieldStyle(.roundedBorder)
-                        Button {
-                            guard let port = UInt16(portText), !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                            Task { try? await viewModel.pair(host: host.trimmingCharacters(in: .whitespacesAndNewlines), port: port) }
-                        } label: {
-                            Label("Connect by Host", systemImage: "network")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .padding()
-                    .background(Color.secondary.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    if !viewModel.pairingCode.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Saved Pairing")
-                                .font(.headline)
-                            Text("\(viewModel.pairingCode.prefix(16))...")
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                            Button("Clear Pairing", role: .destructive) { viewModel.clearPairing() }
-                                .buttonStyle(.bordered)
-                        }
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.secondary.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
+            Group {
+                if viewModel.heartbeatOnline {
+                    connectedContent
+                } else {
+                    #if os(iOS)
+                    scanContent
+                    #else
+                    pasteContent
+                    #endif
                 }
-                .padding()
             }
-            .background(Color.secondary.opacity(0.04))
-            .navigationTitle("Pairing")
+            .navigationTitle("Connect to Mac")
             #if os(iOS)
-            .sheet(isPresented: $showingScanner) {
-                QRScannerView { code in
-                    pairingInput = code
-                    showingScanner = false
-                    claimCurrentInput()
-                } onError: { message in
-                    claimError = message
-                    showingScanner = false
-                }
-            }
+            .navigationBarTitleDisplayMode(.inline)
             #endif
         }
     }
 
     public func handleURL(_ url: URL) {
-        claimPairing(url.absoluteString)
+        let text = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        claimFromInput(text)
     }
 
-    private func pastePairingInput() {
-        #if os(iOS)
-        pairingInput = UIPasteboard.general.string ?? pairingInput
-        #endif
+    // MARK: - Scan State (iOS)
+
+    #if os(iOS)
+    private var scanContent: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            // Hero: QR Scanner viewfinder
+            ZStack {
+                QRScannerView { code in
+                    guard !isClaimingPairing else { return }
+                    pairingInput = code
+                    claimFromInput(code)
+                } onError: { message in
+                    claimError = message
+                }
+
+                cornerViewfinder
+            }
+            .frame(width: 280, height: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+            )
+
+            Spacer().frame(height: 24)
+
+            Text("Point your camera at the QR code\nshown on your Mac")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 16)
+
+            // Status indicator
+            HStack(spacing: 6) {
+                if isClaimingPairing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                Text(viewModel.connectionStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let error = claimError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 32)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+
+            // Subtle fallback
+            Button {
+                showingPasteSheet = true
+            } label: {
+                HStack(spacing: 4) {
+                    Text("Paste pairing URI")
+                        .font(.caption)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.tertiary)
+            }
+            .padding(.bottom, 40)
+        }
+        .sheet(isPresented: $showingPasteSheet) {
+            pasteSheet
+        }
+    }
+    #endif
+
+    // MARK: - Paste Content (non-iOS fallback)
+
+    private var pasteContent: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Text("Paste Pairing URI")
+                .font(.headline)
+
+            TextEditor(text: $pairingInput)
+                .font(.system(size: 13, design: .monospaced))
+                .frame(minHeight: 100, maxHeight: 200)
+                .padding(8)
+                .background(Color.secondary.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .autocorrectionDisabled()
+
+            Button {
+                claimFromInput(pairingInput)
+            } label: {
+                Text("Connect")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isClaimingPairing)
+
+            if let error = claimError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                Text(viewModel.connectionStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding()
     }
 
-    private func claimCurrentInput() {
-        let input = pairingInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !input.isEmpty else { return }
-        claimPairing(input)
+    // MARK: - Connected State
+
+    private var connectedContent: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(.green)
+
+            Spacer().frame(height: 16)
+
+            Text("Connected")
+                .font(.title2.bold())
+
+            if !viewModel.pairingCode.isEmpty {
+                Text("Paired with Mac")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            }
+
+            Spacer()
+
+            Button(role: .destructive) {
+                viewModel.clearPairing()
+            } label: {
+                Label("Disconnect", systemImage: "link.badge.minus")
+            }
+            .buttonStyle(.bordered)
+            .padding(.bottom, 40)
+        }
     }
 
-    private func claimPairing(_ input: String) {
-        guard !isClaimingPairing else { return }
+    // MARK: - Paste Fallback Sheet
+
+    private var pasteSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                TextEditor(text: $pairingInput)
+                    .font(.system(size: 13, design: .monospaced))
+                    .frame(minHeight: 120)
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .autocorrectionDisabled()
+
+                Button {
+                    claimFromInput(pairingInput)
+                } label: {
+                    Text("Connect")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(pairingInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isClaimingPairing)
+            }
+            .padding()
+            .navigationTitle("Paste Pairing URI")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingPasteSheet = false }
+                }
+                #if os(iOS)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        pairingInput = UIPasteboard.general.string ?? pairingInput
+                    } label: {
+                        Image(systemName: "doc.on.clipboard")
+                    }
+                }
+                #endif
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func claimFromInput(_ input: String) {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isClaimingPairing else { return }
         claimError = nil
         isClaimingPairing = true
         Task {
             do {
-                try await viewModel.claimFromPayload(input)
+                try await viewModel.claimFromPayload(text)
                 claimError = nil
                 pairingInput = ""
+                showingPasteSheet = false
             } catch {
                 if viewModel.currentState == .connected {
                     claimError = nil
@@ -175,7 +269,57 @@ public struct PairingView: View {
             isClaimingPairing = false
         }
     }
+
+    private var statusColor: Color {
+        if viewModel.heartbeatOnline { return .green }
+        if viewModel.currentState == .authFailed { return .red }
+        if isClaimingPairing { return .orange }
+        return .secondary
+    }
+
+    /// Viewfinder corner brackets overlaid on the camera preview.
+    #if os(iOS)
+    private var cornerViewfinder: some View {
+        GeometryReader { geo in
+            let l: CGFloat = 28   // corner arm length
+            let w: CGFloat = 3    // stroke width
+            let p: CGFloat = 16   // inset from edge
+
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: p, y: p + l))
+                    path.addLine(to: CGPoint(x: p, y: p))
+                    path.addLine(to: CGPoint(x: p + l, y: p))
+                }
+                .stroke(.white, lineWidth: w)
+
+                Path { path in
+                    path.move(to: CGPoint(x: geo.size.width - p - l, y: p))
+                    path.addLine(to: CGPoint(x: geo.size.width - p, y: p))
+                    path.addLine(to: CGPoint(x: geo.size.width - p, y: p + l))
+                }
+                .stroke(.white, lineWidth: w)
+
+                Path { path in
+                    path.move(to: CGPoint(x: p, y: geo.size.height - p - l))
+                    path.addLine(to: CGPoint(x: p, y: geo.size.height - p))
+                    path.addLine(to: CGPoint(x: p + l, y: geo.size.height - p))
+                }
+                .stroke(.white, lineWidth: w)
+
+                Path { path in
+                    path.move(to: CGPoint(x: geo.size.width - p - l, y: geo.size.height - p))
+                    path.addLine(to: CGPoint(x: geo.size.width - p, y: geo.size.height - p))
+                    path.addLine(to: CGPoint(x: geo.size.width - p, y: geo.size.height - p - l))
+                }
+                .stroke(.white, lineWidth: w)
+            }
+        }
+    }
+    #endif
 }
+
+// MARK: - Connection Status (used by app directly)
 
 public struct ConnectionStatusView: View {
     @ObservedObject var viewModel: RelayClientViewModel
@@ -193,7 +337,6 @@ public struct ConnectionStatusView: View {
             }
             .padding(.horizontal)
 
-            // State-aware actions
             HStack {
                 if viewModel.currentState == .authFailed || viewModel.currentState == .offline {
                     Button("Reconnect") { Task { await viewModel.reconnect() } }
@@ -233,47 +376,7 @@ public struct ConnectionStatusView: View {
     }
 }
 
-public struct SessionSnapshotView: View {
-    @ObservedObject var viewModel: RelayClientViewModel
-    public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Session").font(.headline)
-            if let session = viewModel.sessionSnapshot {
-                Text("Status: \(session.status)")
-                Text("Model: \(session.model ?? "-")")
-                if !session.assistantText.isEmpty {
-                    Text("Assistant: \(session.assistantText.prefix(80))...").font(.caption).foregroundStyle(.secondary)
-                }
-            } else { Text("No session data").foregroundStyle(.secondary) }
-        }.padding()
-    }
-}
-
-public struct EventReplayListView: View {
-    @ObservedObject var viewModel: RelayClientViewModel
-    public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Events").font(.headline)
-            if viewModel.replayEvents.isEmpty {
-                Text("No events").foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(viewModel.replayEvents.enumerated()), id: \.offset) { (i, event) in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text("#\(event.seq)").font(.caption2).foregroundStyle(.secondary)
-                            Text(event.type).font(.caption).bold()
-                            Text(event.timestamp, style: .time).font(.caption2).foregroundStyle(.tertiary)
-                        }
-                        Text(event.summary).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }.padding()
-    }
-}
+// MARK: - Scanner Camera
 
 #if os(iOS)
 private struct QRScannerView: UIViewControllerRepresentable {

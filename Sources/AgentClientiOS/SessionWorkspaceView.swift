@@ -106,18 +106,6 @@ struct SessionToolbar: View {
                 .sheet(isPresented: $showingSessionList) {
                     SessionListView(viewModel: viewModel, isPresented: $showingSessionList)
                 }
-                Button {
-                    Task {
-                        try? await viewModel.startNewSession()
-                        try? await viewModel.refresh()
-                    }
-                } label: {
-                    Label("New", systemImage: "plus.bubble")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
                 Divider().frame(height: 20)
 
                 // Model — driven by snapshot availableModels
@@ -411,6 +399,7 @@ struct SessionListView: View {
                     Button("Done") { isPresented = false }
                 }
             }
+            .task { await viewModel.fetchSessions() }
         }
     }
 }
