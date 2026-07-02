@@ -679,8 +679,7 @@ final class MacShellViewModel: ObservableObject {
         record(.settingsUpdate, "session.settings.update model=\(selectedModel) effort=\(selectedEffort) plan=\(planModeEnabled) access=\(selectedPermissionMode)")
 
         // Sync UI settings to relay service for broadcast to iOS clients
-        relayService.planMode = planModeEnabled
-        relayService.permissionMode = selectedPermissionMode
+        syncSettingsToRelay()
         // Broadcast updated snapshot so iOS picks up the changes immediately
         var snapshotEnvelope = relayService.snapshotEnvelope()
         var allSessions = runtime.sessions
@@ -816,6 +815,21 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
+    /// Sync current view model settings into MacRelayService so snapshot
+    /// broadcasts to iOS carry the correct model, effort, planMode, permissionMode.
+    func syncSettingsToRelay() {
+        relayService.snapshot.settings = SessionSettingsSnapshot(
+            model: selectedModel.isEmpty ? nil : selectedModel,
+            effort: selectedEffort.isEmpty ? nil : selectedEffort,
+            approvalPolicy: approvalPolicyValue,
+            sandboxType: turnSandboxValue,
+            cwd: projectCWD
+        )
+        relayService.snapshot.availableModels = runtime.modelNames.isEmpty ? nil : runtime.modelNames
+        relayService.planMode = planModeEnabled
+        relayService.permissionMode = selectedPermissionMode
+    }
+
     func startRelayServer(persistConfiguration: Bool = true) {
         relayServerLastError = nil
         do {
@@ -856,7 +870,34 @@ final class MacShellViewModel: ObservableObject {
             // Track phone connection state via WebSocket auth count
             wsServer.onAuthenticatedCountChanged = { [weak self] count in
                 Task { @MainActor in
-                    self?.relayPhoneConnected = count > 0
+                    guard let self else { return }
+                    self.relayPhoneConnected = count > 0
+                    if count > 0 {
+                        // New phone connected — sync current Mac settings so iOS
+                        // gets the correct model/effort/planMode/permissionMode
+                        // on the very first snapshot broadcast.
+                        self.syncSettingsToRelay()
+                        var envelope = self.relayService.snapshotEnvelope()
+                        // Include full session list
+                        var allSessions = self.runtime.sessions
+                        for item in self.archivedSessionItems {
+                            if !allSessions.contains(where: { $0.sessionID == item.id }) {
+                                allSessions.append(RelaySessionInfoPayload(
+                                    sessionID: item.id,
+                                    cwd: self.workspaceCWD,
+                                    model: "",
+                                    effort: "",
+                                    status: "completed",
+                                    createdAt: nil,
+                                    title: item.title
+                                ))
+                            }
+                        }
+                        envelope.payload.availableSessions = allSessions
+                        if let data = try? JSONEncoder().encode(envelope) {
+                            self.relayWSServer?.broadcast(data: data)
+                        }
+                    }
                 }
             }
             try wsServer.start(host: relayServerHost, port: 0)
@@ -1102,10 +1143,7 @@ final class MacShellViewModel: ObservableObject {
             relayEventCount = relayService.eventCount
             relayStatusText = "relay seq=\(relaySnapshot.lastEventSeq) events=\(relayEventCount)"
             // Sync UI settings to relay service so broadcasts include model/effort/planMode
-            relayService.planMode = planModeEnabled
-            relayService.permissionMode = selectedPermissionMode
-            relayService.model = selectedModel
-            relayService.effort = selectedEffort
+            syncSettingsToRelay()
             // Active push to all connected WebSocket clients
             var snapshotEnvelope = relayService.snapshotEnvelope()
             // Build session list grouped by workspace: active vs workspace sections

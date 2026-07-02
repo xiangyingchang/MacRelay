@@ -34,6 +34,20 @@ public struct SessionSettingsSnapshot {
     public var approvalPolicy: String?
     public var sandboxType: String?
     public var cwd: String?
+
+    public init(
+        model: String? = nil,
+        effort: String? = nil,
+        approvalPolicy: String? = nil,
+        sandboxType: String? = nil,
+        cwd: String? = nil
+    ) {
+        self.model = model
+        self.effort = effort
+        self.approvalPolicy = approvalPolicy
+        self.sandboxType = sandboxType
+        self.cwd = cwd
+    }
 }
 
 public struct TurnSnapshot {
