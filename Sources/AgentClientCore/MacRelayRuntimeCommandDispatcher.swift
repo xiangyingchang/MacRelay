@@ -108,14 +108,23 @@ public struct MacRelayRuntimeCommandDispatcher {
     /// The view model uses this to keep its local state in sync.
     public var onSettingsUpdate: ((_ planMode: Bool?, _ permissionMode: String?, _ provider: String?) -> Void)?
 
+    /// Called when iOS sends sessionSaveToWorkspace — delegates to the ShellViewModel.
+    public var onSaveSessionToWorkspace: ((String) -> Void)?
+    /// Called when iOS sends sessionRemoveFromWorkspace — delegates to the ShellViewModel.
+    public var onRemoveSessionFromWorkspace: ((String) -> Void)?
+
     public init(
         runtime: AgentRuntime,
         defaultCWD: @escaping () -> String,
-        onSettingsUpdate: ((_ planMode: Bool?, _ permissionMode: String?, _ provider: String?) -> Void)? = nil
+        onSettingsUpdate: ((_ planMode: Bool?, _ permissionMode: String?, _ provider: String?) -> Void)? = nil,
+        onSaveSessionToWorkspace: ((String) -> Void)? = nil,
+        onRemoveSessionFromWorkspace: ((String) -> Void)? = nil
     ) {
         self.runtime = runtime
         self.defaultCWD = defaultCWD
         self.onSettingsUpdate = onSettingsUpdate
+        self.onSaveSessionToWorkspace = onSaveSessionToWorkspace
+        self.onRemoveSessionFromWorkspace = onRemoveSessionFromWorkspace
     }
 
     /// Prefer the selected session's cwd when one is active.
@@ -206,6 +215,22 @@ public struct MacRelayRuntimeCommandDispatcher {
         case .sessionStop:
             try runtime.stopSession()
             return .dispatched("session.stop")
+
+        case .sessionSaveToWorkspace:
+            let payload = try decoder.decode([String: String].self, from: payloadData)
+            if let sessionID = payload["sessionID"] {
+                onSaveSessionToWorkspace?(sessionID)
+                return .dispatched("session.save_to_workspace sessionID=\(sessionID)")
+            }
+            return .dispatched("session.save_to_workspace missing sessionID")
+
+        case .sessionRemoveFromWorkspace:
+            let payload = try decoder.decode([String: String].self, from: payloadData)
+            if let sessionID = payload["sessionID"] {
+                onRemoveSessionFromWorkspace?(sessionID)
+                return .dispatched("session.remove_from_workspace sessionID=\(sessionID)")
+            }
+            return .dispatched("session.remove_from_workspace missing sessionID")
 
         default:
             return .unsupported("\(commandType.rawValue) not routed to CodexRuntimeBridge")

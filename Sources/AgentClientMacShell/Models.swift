@@ -860,8 +860,19 @@ final class MacShellViewModel: ObservableObject {
                             self.recordSettingsUpdate()
                         }
                     }
+                },
+                onSaveSessionToWorkspace: { [weak self] sessionID in
+                    Task { @MainActor in
+                        self?.saveSessionToWorkspace(id: sessionID)
+                    }
+                },
+                onRemoveSessionFromWorkspace: { [weak self] sessionID in
+                    Task { @MainActor in
+                        self?.deleteSession(id: sessionID)
+                    }
                 }
             )
+            // — no additional code between dispatcher init and wsServer —
             let wsServer = MacRelayWebSocketServer(
                 relayService: relayService,
                 pairingToken: relayHTTPServer.token,

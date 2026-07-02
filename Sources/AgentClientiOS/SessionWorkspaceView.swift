@@ -1,18 +1,344 @@
 import SwiftUI
 import AgentClientCore
 
-/// Full-session workspace with toolbar, conversation stream, and bottom composer.
+/// Session tab root — Mac-style session list (会话 + 空间) with conversation detail.
 public struct SessionWorkspaceView: View {
     @ObservedObject var viewModel: RelayClientViewModel
+    @State private var navigationPath: [NavigationTarget] = []
 
     public init(viewModel: RelayClientViewModel) {
         self.viewModel = viewModel
     }
 
     public var body: some View {
+        NavigationStack(path: $navigationPath) {
+            SessionListContent(viewModel: viewModel, navigationPath: $navigationPath)
+                .navigationDestination(for: NavigationTarget.self) { target in
+                    switch target {
+                    case .conversation:
+                        ConversationDetailView(viewModel: viewModel, navigationPath: $navigationPath)
+                    }
+                }
+        }
+    }
+}
+
+private enum NavigationTarget: Hashable {
+    case conversation
+}
+
+// MARK: – Session List (root)
+
+private struct SessionListContent: View {
+    @ObservedObject var viewModel: RelayClientViewModel
+    @Binding var navigationPath: [NavigationTarget]
+    @State private var selectionError: String?
+    @State private var isCreating = false
+
+    var body: some View {
         VStack(spacing: 0) {
-            // Status bar
-            HStack {
+            // Connection status bar
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(viewModel.heartbeatOnline ? Color.green : .orange)
+                    .frame(width: 8, height: 8)
+                Text(viewModel.connectionStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if viewModel.isConnecting {
+                    ProgressView().scaleEffect(0.7)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+
+            Divider()
+
+            if viewModel.availableSessions.isEmpty && viewModel.workspaceSessions.isEmpty {
+                emptyState
+            } else {
+                sessionLists
+            }
+
+            Divider()
+
+            // Bottom bar — New Session + counts
+            bottomBar
+        }
+        .navigationTitle("会话")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task { await viewModel.fetchSessions() }
+    }
+
+    // MARK: – Empty state
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: 36))
+                .foregroundStyle(.tertiary)
+            Text("No Sessions")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Text("Active sessions will appear here\nwhen connected to Mac.")
+                .font(.subheadline)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: – Session lists
+
+    private var sessionLists: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                // 会话 — active sessions
+                if !viewModel.availableSessions.isEmpty {
+                    sectionHeader(title: "会话", count: viewModel.availableSessions.count)
+                    VStack(spacing: 0) {
+                        ForEach(viewModel.availableSessions) { session in
+                            SessionRowView(
+                                session: session,
+                                isSelected: session.sessionID == viewModel.selectedSessionID,
+                                isInWorkspace: false,
+                                onTap: {
+                                    selectAndNavigate(sessionID: session.sessionID)
+                                },
+                                onSave: {
+                                    Task { await viewModel.saveSessionToWorkspace(sessionID: session.sessionID) }
+                                },
+                                onDelete: {
+                                    Task { await viewModel.deleteSession(sessionID: session.sessionID) }
+                                }
+                            )
+                            if session.sessionID != viewModel.availableSessions.last?.sessionID {
+                                Divider().padding(.leading, 44)
+                            }
+                        }
+                    }
+                    .background(Color.secondary.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                }
+
+                // 空间 — workspace sessions
+                if !viewModel.workspaceSessions.isEmpty {
+                    sectionHeader(title: "空间", count: viewModel.workspaceSessions.count)
+                    VStack(spacing: 0) {
+                        ForEach(viewModel.workspaceSessions) { session in
+                            SessionRowView(
+                                session: session,
+                                isSelected: session.sessionID == viewModel.selectedSessionID,
+                                isInWorkspace: true,
+                                onTap: {
+                                    selectAndNavigate(sessionID: session.sessionID)
+                                },
+                                onSave: nil,
+                                onDelete: {
+                                    Task { await viewModel.deleteSession(sessionID: session.sessionID) }
+                                }
+                            )
+                            if session.sessionID != viewModel.workspaceSessions.last?.sessionID {
+                                Divider().padding(.leading, 44)
+                            }
+                        }
+                    }
+                    .background(Color.secondary.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                }
+
+                if let error = selectionError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(8)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private func sectionHeader(title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.6)
+            Text("(\(count))")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+    }
+
+    // MARK: – Bottom bar
+
+    private var bottomBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task {
+                    isCreating = true
+                    try? await viewModel.startNewSession()
+                    try? await viewModel.refresh()
+                    isCreating = false
+                }
+            } label: {
+                if isCreating {
+                    ProgressView().scaleEffect(0.8)
+                } else {
+                    Label("新建任务", systemImage: "plus.bubble")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(isCreating)
+
+            Spacer()
+
+            let total = viewModel.availableSessions.count + viewModel.workspaceSessions.count
+            Text("\(total) 个")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private func selectAndNavigate(sessionID: String) {
+        selectionError = nil
+        Task {
+            do {
+                try await viewModel.selectSession(sessionID: sessionID)
+                navigationPath.append(.conversation)
+            } catch {
+                selectionError = error.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: – Session Row
+
+private struct SessionRowView: View {
+    let session: RelaySessionInfoPayload
+    let isSelected: Bool
+    let isInWorkspace: Bool
+    let onTap: () -> Void
+    let onSave: (() -> Void)?
+    let onDelete: (() -> Void)?
+    var body: some View {
+        HStack(spacing: 10) {
+            // Status dot
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+
+            // Info
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(session.displayTitle)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .lineLimit(1)
+                    if let model = session.model {
+                        Text(model)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+                HStack(spacing: 8) {
+                    if let cwd = session.cwd {
+                        Label(cwd, systemImage: "folder")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                    if let effort = session.effort {
+                        Text("effort: \(effort)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    if let createdAt = session.createdAt {
+                        Text(createdAt, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Checkmark for active session
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.blue)
+                    .font(.caption)
+            }
+
+            // ⋮ menu
+            Menu {
+                if let onSave {
+                    Button(action: onSave) {
+                        Label("保存到空间", systemImage: "tray.and.arrow.down")
+                    }
+                }
+                if let onDelete {
+                    Button(role: .destructive, action: onDelete) {
+                        Label("删除", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .background(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
+    }
+
+    private var statusColor: Color {
+        switch session.status?.lowercased() {
+        case "active", "running": return .green
+        case "completed": return .blue
+        case "failed", "error": return .red
+        case "waiting", "waiting_on_approval": return .orange
+        default: return .gray
+        }
+    }
+}
+
+// MARK: – Conversation Detail
+
+private struct ConversationDetailView: View {
+    @ObservedObject var viewModel: RelayClientViewModel
+    @Binding var navigationPath: [NavigationTarget]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Connection status
+            HStack(spacing: 6) {
                 Circle()
                     .fill(viewModel.heartbeatOnline ? Color.green : .orange)
                     .frame(width: 8, height: 8)
@@ -29,9 +355,8 @@ public struct SessionWorkspaceView: View {
 
             Divider()
 
-            // Session Toolbar — config pickers
-            SessionToolbar(viewModel: viewModel)
-
+            // Toolbar
+            ConversationToolbar(viewModel: viewModel)
             Divider()
 
             // Conversation stream
@@ -39,10 +364,16 @@ public struct SessionWorkspaceView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         if viewModel.conversationMessages.isEmpty {
-                            Text("No messages yet. Send a message or connect to Mac.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .padding()
+                            VStack(spacing: 8) {
+                                Text("No messages yet.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 40)
+                                Text("Send a message to start a conversation.")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity)
                         } else {
                             ForEach(Array(viewModel.conversationMessages.enumerated()), id: \.offset) { (i, msg) in
                                 MessageBubble(message: msg)
@@ -61,7 +392,7 @@ public struct SessionWorkspaceView: View {
 
             Divider()
 
-            // Bottom composer
+            // Composer
             ComposerBar(
                 text: $viewModel.draftText,
                 isSending: viewModel.isSending,
@@ -74,14 +405,17 @@ public struct SessionWorkspaceView: View {
                 }
             )
         }
+        .navigationTitle(viewModel.selectedSessionID?.prefix(8) ?? "会话")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
-// MARK: - Session Toolbar
+// MARK: – Conversation Toolbar
 
-struct SessionToolbar: View {
+private struct ConversationToolbar: View {
     @ObservedObject var viewModel: RelayClientViewModel
-    @State private var showingSessionList = false
 
     private let efforts = ["low", "medium", "high", "xhigh"]
     private let permissions = ["Read Only", "Default", "Full Access"]
@@ -89,26 +423,7 @@ struct SessionToolbar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                // Session button — opens full list sheet
-                Button {
-                    showingSessionList = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "rectangle.3.group")
-                            .font(.caption)
-                        Text(viewModel.selectedSessionID?.prefix(8) ?? "Session")
-                            .font(.caption)
-                            .lineLimit(1)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .sheet(isPresented: $showingSessionList) {
-                    SessionListView(viewModel: viewModel, isPresented: $showingSessionList)
-                }
-                Divider().frame(height: 20)
-
-                // Model — driven by snapshot availableModels
+                // Model
                 if !viewModel.availableModels.isEmpty {
                     Picker("Model", selection: $viewModel.selectedModel) {
                         ForEach(viewModel.availableModels, id: \.self) { m in
@@ -130,7 +445,7 @@ struct SessionToolbar: View {
 
                 Divider().frame(height: 20)
 
-                // Effort — snapshots may include it; otherwise show empty
+                // Effort
                 Picker("Effort", selection: $viewModel.selectedEffort) {
                     ForEach(efforts, id: \.self) { e in
                         Text(e.capitalized).tag(e).font(.caption)
@@ -143,7 +458,7 @@ struct SessionToolbar: View {
 
                 Divider().frame(height: 20)
 
-                // Plan mode toggle
+                // Plan mode
                 Toggle(isOn: $viewModel.planModeEnabled) {
                     Label("Plan", systemImage: "checklist")
                         .font(.caption)
@@ -181,7 +496,7 @@ struct SessionToolbar: View {
     }
 }
 
-// MARK: - Message Bubble
+// MARK: – Message Bubble (unchanged)
 
 struct MessageBubble: View {
     let message: String
@@ -246,7 +561,7 @@ struct MessageBubble: View {
     }
 }
 
-// MARK: - Composer
+// MARK: – Composer (unchanged)
 
 struct ComposerBar: View {
     @Binding var text: String
@@ -279,217 +594,5 @@ struct ComposerBar: View {
 
     private var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && isConnected
-    }
-}
-
-// MARK: - Session List
-
-struct SessionListView: View {
-    @ObservedObject var viewModel: RelayClientViewModel
-    @Binding var isPresented: Bool
-    @State private var isLoading = false
-    @State private var selectionError: String?
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Search bar
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Filter by ID, model, or status", text: $viewModel.sessionFilterText)
-                        .textFieldStyle(.plain)
-                        .font(.subheadline)
-                    if !viewModel.sessionFilterText.isEmpty {
-                        Button { viewModel.sessionFilterText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-
-                Divider()
-
-                // Session list — grouped: active ("会话") and workspace ("空间")
-                let hasActive = !viewModel.availableSessions.isEmpty
-                let hasWorkspace = !viewModel.workspaceSessions.isEmpty
-                if !hasActive && !hasWorkspace {
-                    ContentUnavailableView(
-                        "No Sessions",
-                        systemImage: "rectangle.3.group",
-                        description: Text("Active sessions will appear here when connected to Mac.")
-                    )
-                } else {
-                    List {
-                        if hasActive {
-                            Section("会话") {
-                                ForEach(viewModel.availableSessions) { session in
-                                    sessionRow(for: session)
-                                }
-                            }
-                        }
-                        if hasWorkspace {
-                            Section("空间") {
-                                ForEach(viewModel.workspaceSessions) { session in
-                                    sessionRow(for: session)
-                                }
-                            }
-                        }
-                    }
-                    #if os(iOS)
-                    .listStyle(.insetGrouped)
-                    #else
-                    .listStyle(.plain)
-                    #endif
-                }
-
-                // Error state
-                if let error = selectionError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(8)
-                }
-
-                Divider()
-
-                // Bottom bar — New Session + count
-                HStack {
-                    Button {
-                        Task {
-                            isLoading = true
-                            try? await viewModel.startNewSession()
-                            try? await viewModel.refresh()
-                            isLoading = false
-                            isPresented = false
-                        }
-                    } label: {
-                        if isLoading {
-                            ProgressView().scaleEffect(0.8)
-                        } else {
-                            Label("New Session", systemImage: "plus.bubble")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(isLoading)
-
-                    Spacer()
-
-                    let total = viewModel.availableSessions.count + viewModel.workspaceSessions.count
-                    Text("\(total) session(s)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-            .navigationTitle("Sessions")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { isPresented = false }
-                }
-            }
-            .task { await viewModel.fetchSessions() }
-        }
-    }
-
-    @ViewBuilder
-    private func sessionRow(for session: RelaySessionInfoPayload) -> some View {
-        Button {
-            Task {
-                isLoading = true
-                selectionError = nil
-                do {
-                    try await viewModel.selectSession(sessionID: session.sessionID)
-                    isPresented = false
-                } catch {
-                    selectionError = error.localizedDescription
-                }
-                isLoading = false
-            }
-        } label: {
-            SessionRow(
-                session: session,
-                isSelected: session.sessionID == viewModel.selectedSessionID
-            )
-        }
-        .disabled(isLoading)
-    }
-}
-
-struct SessionRow: View {
-    let session: RelaySessionInfoPayload
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            // Status indicator
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-
-            VStack(alignment: .leading, spacing: 2) {
-                // Session ID (truncated) + model
-                HStack(spacing: 6) {
-                    Text(session.displayTitle)
-                        .font(.system(.subheadline, design: .monospaced))
-                        .lineLimit(1)
-                    if let model = session.model {
-                        Text(model)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.12))
-                            .clipShape(Capsule())
-                    }
-                }
-
-                // CWD + effort + created time
-                HStack(spacing: 8) {
-                    if let cwd = session.cwd {
-                        Label(cwd, systemImage: "folder")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                    if let effort = session.effort {
-                        Text("effort: \(effort)")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                    if let createdAt = session.createdAt {
-                        Text(createdAt, style: .relative)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-
-            Spacer()
-
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
-            }
-        }
-        .padding(.vertical, 2)
-        .opacity(isSelected ? 1.0 : 0.85)
-    }
-
-    private var statusColor: Color {
-        switch session.status?.lowercased() {
-        case "active", "running": return .green
-        case "completed": return .blue
-        case "failed", "error": return .red
-        case "waiting", "waiting_on_approval": return .orange
-        default: return .gray
-        }
     }
 }

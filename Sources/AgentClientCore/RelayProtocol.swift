@@ -51,6 +51,8 @@ public enum RelayCommandType: String, Codable, CaseIterable {
     case snapshotGet = "snapshot.get"
     case replayFrom = "replay.from"
     case heartbeatPing = "heartbeat.ping"
+    case sessionSaveToWorkspace = "session.save_to_workspace"
+    case sessionRemoveFromWorkspace = "session.remove_from_workspace"
 }
 
 public enum RelayEventType: String, Codable, CaseIterable {

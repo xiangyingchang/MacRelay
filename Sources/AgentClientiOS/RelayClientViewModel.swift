@@ -356,6 +356,35 @@ public final class RelayClientViewModel: ObservableObject {
         try await refresh()
     }
 
+    /// Save a session to the current workspace on Mac.
+    /// Mac moves it from "available" to "workspace" and broadcasts the updated list.
+    public func saveSessionToWorkspace(sessionID: String) async {
+        guard stateMachine.state == .connected else { return }
+        do {
+            let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+                type: .sessionSaveToWorkspace,
+                payload: ["sessionID": sessionID]
+            )
+            try? await refresh()
+        } catch {
+            print("[iOS] saveSessionToWorkspace error: \(error)")
+        }
+    }
+
+    /// Remove a session from the workspace on Mac.
+    public func deleteSession(sessionID: String) async {
+        guard stateMachine.state == .connected else { return }
+        do {
+            let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+                type: .sessionRemoveFromWorkspace,
+                payload: ["sessionID": sessionID]
+            )
+            try? await refresh()
+        } catch {
+            print("[iOS] deleteSession error: \(error)")
+        }
+    }
+
     /// Create a new session on Mac. Mac creates a thread (even without prompt)
     /// and broadcasts it via availableSessions. We poll until the count
     /// increases — just checking non-empty is wrong when sessions already exist.
