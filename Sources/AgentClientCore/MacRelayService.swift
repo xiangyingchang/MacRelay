@@ -15,11 +15,13 @@ public final class MacRelayService {
     public var permissionMode: String?
     public var model: String?
     public var effort: String?
+    public var provider: String?
 
     /// Update snapshot settings from the Mac view model so iOS receives current config.
     public func updateSnapshotSettings(
         model: String?,
         effort: String?,
+        provider: String?,
         approvalPolicy: String?,
         sandboxType: String?,
         cwd: String?
@@ -27,6 +29,7 @@ public final class MacRelayService {
         snapshot.settings = SessionSettingsSnapshot(
             model: model,
             effort: effort,
+            provider: provider,
             approvalPolicy: approvalPolicy,
             sandboxType: sandboxType,
             cwd: cwd
@@ -118,6 +121,7 @@ public final class MacRelayService {
         // Inject UI settings that are not in the agent runtime snapshot
         session.planMode = planMode
         session.permissionMode = permissionMode
+        session.provider = provider
         if let model { session.model = model }
         if let effort { session.effort = effort }
         return RelaySnapshotPayload(

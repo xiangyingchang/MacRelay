@@ -290,12 +290,17 @@ public final class MacRelayWebSocketServer {
             }
             switch type {
             case RelayCommandType.snapshotGet.rawValue:
-                var envelope = relayService.snapshotEnvelope(correlationID: id)
                 // Inject grouped session lists so iOS clients see both
                 // "会话" (active) and "空间" (workspace) on initial snapshot.get.
-                if let dispatcher = commandDispatcher,
-                   let groups = DispatchQueue.main.sync(execute: { dispatcher.onSnapshotGet?() }),
-                   !groups.availableSessions.isEmpty {
+                // Run this callback before building the envelope: the Mac UI uses
+                // it to synchronise UI-owned settings (including provider) into
+                // MacRelayService, so the first snapshot after pairing cannot race
+                // with the asynchronous authenticated-count callback.
+                let groups = commandDispatcher.flatMap { dispatcher in
+                    DispatchQueue.main.sync(execute: { dispatcher.onSnapshotGet?() })
+                }
+                var envelope = relayService.snapshotEnvelope(correlationID: id)
+                if let groups {
                     envelope.payload.availableSessions = groups.availableSessions
                     envelope.payload.workspaceSessions = groups.workspaceSessions
                 }
@@ -320,7 +325,7 @@ public final class MacRelayWebSocketServer {
                 let payload = RelayEnvelope(type: type, correlationID: id, payload: sessions)
                 return try encode(payload)
 
-            case RelayCommandType.turnStart.rawValue, RelayCommandType.sessionStart.rawValue, RelayCommandType.settingsUpdate.rawValue, RelayCommandType.sessionStop.rawValue, RelayCommandType.sessionSelect.rawValue:
+            case RelayCommandType.turnStart.rawValue, RelayCommandType.sessionStart.rawValue, RelayCommandType.settingsUpdate.rawValue, RelayCommandType.sessionStop.rawValue, RelayCommandType.sessionSelect.rawValue, RelayCommandType.sessionSaveToWorkspace.rawValue, RelayCommandType.sessionRemoveFromWorkspace.rawValue:
                 guard let commandDispatcher, let payloadData else {
                     return try encode(RelayEnvelope(type: RelayEventType.error.rawValue, correlationID: id, payload: ["error": "remote commands not supported on this server", "code": RelayErrorCode.commandUnsupported.code] as [String: String]))
                 }
@@ -333,6 +338,10 @@ public final class MacRelayWebSocketServer {
                     cmdType = .sessionStop
                 } else if type == RelayCommandType.sessionSelect.rawValue {
                     cmdType = .sessionSelect
+                } else if type == RelayCommandType.sessionSaveToWorkspace.rawValue {
+                    cmdType = .sessionSaveToWorkspace
+                } else if type == RelayCommandType.sessionRemoveFromWorkspace.rawValue {
+                    cmdType = .sessionRemoveFromWorkspace
                 } else {
                     cmdType = .turnStart
                 }

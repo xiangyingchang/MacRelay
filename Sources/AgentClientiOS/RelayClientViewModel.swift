@@ -182,6 +182,9 @@ public final class RelayClientViewModel: ObservableObject {
         if let permissionMode = snap.permissionMode, !permissionMode.isEmpty {
             self.permissionMode = permissionMode
         }
+        if let provider = snap.provider, !provider.isEmpty {
+            selectedProvider = provider
+        }
     }
 
     /// Models available from the Mac snapshot (populated by Codex model/list).
@@ -347,7 +350,10 @@ public final class RelayClientViewModel: ObservableObject {
     /// thread and start a fresh one in the selected session's project context.
     public func selectSession(sessionID: String) async throws {
         guard stateMachine.state == .connected else { throw RelayClientError.wsError("not connected") }
+        // Clear local state before switching to prevent cross-contamination
         self.selectedSessionID = sessionID
+        self.conversationMessages = []
+        self.pendingLocalUserMessages = []
         let payload = RelaySessionSelectCommandPayload(sessionID: sessionID)
         let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
             type: .sessionSelect,
@@ -388,10 +394,14 @@ public final class RelayClientViewModel: ObservableObject {
     /// Create a new session on Mac. Mac creates a thread (even without prompt)
     /// and broadcasts it via availableSessions. We poll until the count
     /// increases — just checking non-empty is wrong when sessions already exist.
-    public func startNewSession(initialPrompt: String? = nil) async throws {
+    /// Returns the new session ID, or nil if the session wasn't created
+    /// within the timeout period.
+    public func startNewSession(initialPrompt: String? = nil) async throws -> String? {
         guard stateMachine.state == .connected else { throw RelayClientError.wsError("not connected") }
-        let existingIDs = Set(self.availableSessions.map(\.sessionID))
-        let existingCount = self.availableSessions.count
+        // Track both lists because Mac auto-saves new sessions to workspace
+        // when shouldAutoSaveNewSessionsToWorkspace is true (existing workspace sessions exist).
+        let existingIDs = Set(self.availableSessions.map(\.sessionID) + self.workspaceSessions.map(\.sessionID))
+        let existingCount = self.availableSessions.count + self.workspaceSessions.count
         let payload = RelaySessionStartCommandPayload(
             cwd: sessionSnapshot?.cwd ?? FileManager.default.currentDirectoryPath,
             model: selectedModel.isEmpty ? nil : selectedModel,
@@ -405,15 +415,28 @@ public final class RelayClientViewModel: ObservableObject {
             payload: payload
         )
         // The Mac init chain is async (initialize → model/list → thread/start).
-        // Poll snapshot until a new session appears.
+        // Poll snapshot until a new session appears in either list.
         let deadline = Date().addingTimeInterval(30)
         while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            try? await refreshSnapshot(includeReplay: false)
-            if self.availableSessions.count > existingCount {
-                return
+            try await Task.sleep(nanoseconds: 500_000_000)
+            do {
+                try await refreshSnapshot(includeReplay: false)
+            } catch {
+                print("[iOS] startNewSession refresh error: \(error)")
+                continue
+            }
+            let totalCount = self.availableSessions.count + self.workspaceSessions.count
+            if totalCount > existingCount {
+                // Find the new session ID by diffing against existing IDs
+                let newIDs = Set(self.availableSessions.map(\.sessionID) + self.workspaceSessions.map(\.sessionID))
+                if let newID = newIDs.subtracting(existingIDs).first {
+                    return newID
+                }
+                // Fallback: return the last session ID from either list (best guess)
+                return self.availableSessions.last?.sessionID ?? self.workspaceSessions.last?.sessionID
             }
         }
+        return nil // Timeout — session not created
     }
 
     /// Build conversation message list from the latest snapshot — Single Source of Truth.
@@ -423,31 +446,41 @@ public final class RelayClientViewModel: ObservableObject {
             return
         }
         var lines: [String] = []
-        let turns = snap.turns.isEmpty
-            ? [RelayTurnSnapshotPayload(
-                id: snap.threadID,
-                userMessage: nil,
-                assistantText: snap.assistantText,
-                isCompleted: snap.status == "completed"
-            )]
-            : snap.turns
 
-        for turn in turns {
-            if let userMsg = turn.userMessage, !userMsg.isEmpty {
-                lines.append("[user] \(userMsg)")
+        // Prefer direct messages from the Mac VM snapshot (includes archived sessions).
+        // Fall back to turns/assistantText from the runtime snapshot.
+        if let msgs = snap.messages, !msgs.isEmpty {
+            for msg in msgs {
+                lines.append("[\(msg.role.lowercased())] \(msg.text)")
             }
-            if !turn.assistantText.isEmpty {
-                let chunks = turn.assistantText
-                    .components(separatedBy: "\n\n")
-                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                for chunk in chunks {
-                    lines.append("[assistant] \(chunk)")
+        } else {
+            let turns = snap.turns.isEmpty
+                ? [RelayTurnSnapshotPayload(
+                    id: snap.threadID,
+                    userMessage: nil,
+                    assistantText: snap.assistantText,
+                    isCompleted: snap.status == "completed"
+                )]
+                : snap.turns
+
+            for turn in turns {
+                if let userMsg = turn.userMessage, !userMsg.isEmpty {
+                    lines.append("[user] \(userMsg)")
+                }
+                if !turn.assistantText.isEmpty {
+                    let chunks = turn.assistantText
+                        .components(separatedBy: "\n\n")
+                        .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    for chunk in chunks {
+                        lines.append("[assistant] \(chunk)")
+                    }
                 }
             }
+
+            let renderedUserMessages = Set(turns.compactMap(\.userMessage))
+            pendingLocalUserMessages.removeAll { renderedUserMessages.contains($0) }
         }
 
-        let renderedUserMessages = Set(turns.compactMap(\.userMessage))
-        pendingLocalUserMessages.removeAll { renderedUserMessages.contains($0) }
         for pending in pendingLocalUserMessages {
             lines.append("[user] \(pending)")
         }

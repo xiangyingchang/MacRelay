@@ -27,6 +27,13 @@ private enum NavigationTarget: Hashable {
     case conversation
 }
 
+/// Groups workspace sessions by their workspace folder (cwd) for display.
+private struct WorkspaceGroup {
+    let folderName: String
+    let folderPath: String
+    let sessions: [RelaySessionInfoPayload]
+}
+
 // MARK: – Session List (root)
 
 private struct SessionListContent: View {
@@ -128,32 +135,12 @@ private struct SessionListContent: View {
                     .padding(.bottom, 8)
                 }
 
-                // 空间 — workspace sessions
+                // 空间 — grouped by workspace folder (cwd)
                 if !viewModel.workspaceSessions.isEmpty {
-                    sectionHeader(title: "空间", count: viewModel.workspaceSessions.count)
-                    VStack(spacing: 0) {
-                        ForEach(viewModel.workspaceSessions) { session in
-                            SessionRowView(
-                                session: session,
-                                isSelected: session.sessionID == viewModel.selectedSessionID,
-                                isInWorkspace: true,
-                                onTap: {
-                                    selectAndNavigate(sessionID: session.sessionID)
-                                },
-                                onSave: nil,
-                                onDelete: {
-                                    Task { await viewModel.deleteSession(sessionID: session.sessionID) }
-                                }
-                            )
-                            if session.sessionID != viewModel.workspaceSessions.last?.sessionID {
-                                Divider().padding(.leading, 44)
-                            }
-                        }
+                    let grouped = workspaceGroups
+                    ForEach(grouped, id: \.folderName) { group in
+                        workspaceSection(for: group)
                     }
-                    .background(Color.secondary.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
                 }
 
                 if let error = selectionError {
@@ -164,6 +151,69 @@ private struct SessionListContent: View {
                 }
             }
             .padding(.top, 8)
+        }
+    }
+
+    /// Groups workspace sessions by their cwd (workspace folder path).
+    private var workspaceGroups: [WorkspaceGroup] {
+        let grouped = Dictionary(grouping: viewModel.workspaceSessions) { session in
+            session.cwd ?? "未知空间"
+        }
+        return grouped.map { (folder, sessions) in
+            WorkspaceGroup(folderName: folderName(from: folder), folderPath: folder, sessions: sessions)
+        }.sorted { $0.folderName.localizedStandardCompare($1.folderName) == .orderedAscending }
+    }
+
+    /// Extract a human-readable folder name from a path.
+    private func folderName(from path: String) -> String {
+        URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    @ViewBuilder
+    private func workspaceSection(for group: WorkspaceGroup) -> some View {
+        VStack(spacing: 0) {
+            // Folder header (like Mac sidebar: folder icon + name + count)
+            HStack(spacing: 6) {
+                Image(systemName: "folder")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text(group.folderName)
+                    .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .tracking(0.6)
+                Text("(\(group.sessions.count))")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
+
+            VStack(spacing: 0) {
+                ForEach(group.sessions) { session in
+                    SessionRowView(
+                        session: session,
+                        isSelected: session.sessionID == viewModel.selectedSessionID,
+                        isInWorkspace: true,
+                        onTap: {
+                            selectAndNavigate(sessionID: session.sessionID)
+                        },
+                        onSave: nil,
+                        onDelete: {
+                            Task { await viewModel.deleteSession(sessionID: session.sessionID) }
+                        }
+                    )
+                    .padding(.leading, 14) // indent under folder
+                    if session.sessionID != group.sessions.last?.sessionID {
+                        Divider().padding(.leading, 44)
+                    }
+                }
+            }
+            .background(Color.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
     }
 
@@ -190,8 +240,19 @@ private struct SessionListContent: View {
             Button {
                 Task {
                     isCreating = true
-                    try? await viewModel.startNewSession()
-                    try? await viewModel.refresh()
+                    selectionError = nil
+                    do {
+                        guard let newSessionID = try await viewModel.startNewSession() else {
+                            selectionError = "创建新会话超时，请重试"
+                            isCreating = false
+                            return
+                        }
+                        try? await viewModel.refresh()
+                        try await viewModel.selectSession(sessionID: newSessionID)
+                        navigationPath.append(.conversation)
+                    } catch {
+                        selectionError = error.localizedDescription
+                    }
                     isCreating = false
                 }
             } label: {

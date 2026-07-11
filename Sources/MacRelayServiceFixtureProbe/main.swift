@@ -80,12 +80,22 @@ try ingest(service, .notification(method: "turn/completed", params: [
     "turn": ["id": "turn-relay", "status": "completed"]
 ]))
 
+service.updateSnapshotSettings(
+    model: "claude-sonnet-4",
+    effort: nil,
+    provider: "Claude Code",
+    approvalPolicy: nil,
+    sandboxType: nil,
+    cwd: "/tmp/project"
+)
+service.provider = "Claude Code"
 let snapshot = service.snapshotEnvelope(correlationID: "snapshot-command")
 try expect(snapshot.type == RelayEventType.snapshot.rawValue, "snapshot envelope type mismatch")
 try expect(snapshot.correlationID == "snapshot-command", "snapshot correlationID mismatch")
 try expect(snapshot.payload.activeSessionID == "thread-relay", "activeSessionID mismatch")
 try expect(snapshot.payload.session?.assistantText == "hello relay", "assistant text mismatch")
 try expect(snapshot.payload.session?.changedFiles == ["file.txt"], "changed files mismatch")
+try expect(snapshot.payload.session?.provider == "Claude Code", "provider mismatch")
 try expect(snapshot.payload.pendingApprovals.count == 1, "pending approval count mismatch")
 try expect(snapshot.payload.lastEventSeq == service.newestSeq, "snapshot seq mismatch")
 try expect(service.eventCount >= 8, "expected relay events to be stored")

@@ -85,6 +85,10 @@ final class MacShellViewModel: ObservableObject {
         runtime.refreshDetection()
         reconcileSelectedModel(with: runtime.modelNames)
         setupRuntimeSubscriptions()
+        // Provider is UI-owned state. Publish it immediately instead of waiting
+        // for a model-list event, which may never arrive before an iOS snapshot.
+        syncSettingsToRelay()
+        broadcastGroupedSnapshot()
     }
     let relayService = MacRelayService(
         connection: ConnectionSnapshotPayload(
@@ -528,6 +532,9 @@ final class MacShellViewModel: ObservableObject {
         if storedProvider != "Codex CLI" {
             runtime = Self.createRuntime(for: storedProvider)
         }
+        // Pre-populate the relay service so iOS gets the correct provider
+        // on the very first snapshot — no wait for onAuthenticatedCountChanged.
+        relayService.provider = storedProvider
 
         if relayServerConfiguredToStart {
             startRelayServer(persistConfiguration: false)
@@ -853,6 +860,11 @@ final class MacShellViewModel: ObservableObject {
         let groups = buildGroupedSessionLists()
         snapshotEnvelope.payload.availableSessions = groups.activeSessions
         snapshotEnvelope.payload.workspaceSessions = groups.workspaceSessions
+        // Inject current session messages into the snapshot so iOS can display them
+        let recentMessages = messages.map {
+            RelayConversationMessagePayload(role: $0.role, text: $0.text)
+        }
+        snapshotEnvelope.payload.session?.messages = recentMessages
         let totalActive = groups.activeSessions.count
         let totalWorkspace = groups.workspaceSessions.count
         if let data = try? JSONEncoder().encode(snapshotEnvelope) {
@@ -906,6 +918,9 @@ final class MacShellViewModel: ObservableObject {
             // Wire onSnapshotGet so snapshot.get responses include grouped session lists
             dispatcher.onSnapshotGet = { [weak self] in
                 guard let self else { return nil }
+                // snapshot.get is the authoritative initial sync after pairing.
+                // Refresh UI-owned settings before the server builds its envelope.
+                syncSettingsToRelay()
                 let groups = buildGroupedSessionLists()
                 return (availableSessions: groups.activeSessions, workspaceSessions: groups.workspaceSessions)
             }

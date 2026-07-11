@@ -31,6 +31,7 @@ public enum SessionStatus: String {
 public struct SessionSettingsSnapshot {
     public var model: String?
     public var effort: String?
+    public var provider: String?
     public var approvalPolicy: String?
     public var sandboxType: String?
     public var cwd: String?
@@ -38,12 +39,14 @@ public struct SessionSettingsSnapshot {
     public init(
         model: String? = nil,
         effort: String? = nil,
+        provider: String? = nil,
         approvalPolicy: String? = nil,
         sandboxType: String? = nil,
         cwd: String? = nil
     ) {
         self.model = model
         self.effort = effort
+        self.provider = provider
         self.approvalPolicy = approvalPolicy
         self.sandboxType = sandboxType
         self.cwd = cwd

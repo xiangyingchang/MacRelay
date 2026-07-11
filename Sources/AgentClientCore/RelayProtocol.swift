@@ -130,6 +130,7 @@ public struct RelaySessionSnapshotPayload: Codable {
     public var effort: String?
     public var planMode: Bool?
     public var permissionMode: String?
+    public var provider: String?
     public var assistantText: String
     public var userMessage: String?
     public var turns: [RelayTurnSnapshotPayload]
@@ -137,6 +138,8 @@ public struct RelaySessionSnapshotPayload: Codable {
     public var changedFiles: [String]
     public var rateLimitPlanType: String?
     public var errorMessage: String?
+    /// Recent conversation messages from the active session (Mac VM → iOS).
+    public var messages: [RelayConversationMessagePayload]?
 
     private enum CodingKeys: String, CodingKey {
         case threadID
@@ -146,6 +149,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         case effort
         case planMode
         case permissionMode
+        case provider
         case assistantText
         case userMessage
         case turns
@@ -153,6 +157,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         case changedFiles
         case rateLimitPlanType
         case errorMessage
+        case messages
     }
 
     public init(
@@ -163,14 +168,17 @@ public struct RelaySessionSnapshotPayload: Codable {
         effort: String?,
         planMode: Bool? = nil,
         permissionMode: String? = nil,
+        provider: String? = nil,
         assistantText: String,
         userMessage: String? = nil,
         turns: [RelayTurnSnapshotPayload] = [],
         availableModels: [String]? = nil,
         changedFiles: [String],
         rateLimitPlanType: String? = nil,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        messages: [RelayConversationMessagePayload]? = nil
     ) {
+        self.messages = messages
         self.threadID = threadID
         self.cwd = cwd
         self.status = status
@@ -178,6 +186,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.effort = effort
         self.planMode = planMode
         self.permissionMode = permissionMode
+        self.provider = provider
         self.assistantText = assistantText
         self.userMessage = userMessage
         self.turns = turns
@@ -193,6 +202,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.status = snapshot.status.rawValue
         self.model = snapshot.settings?.model
         self.effort = snapshot.settings?.effort
+        self.provider = snapshot.settings?.provider
         self.planMode = nil
         self.permissionMode = nil
         self.assistantText = snapshot.activeTurn?.assistantText ?? ""
@@ -206,6 +216,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.changedFiles = snapshot.turnDiff?.changedFiles ?? snapshot.fileChanges.values.compactMap(\.path)
         self.rateLimitPlanType = snapshot.rateLimit?.planType
         self.errorMessage = snapshot.lastError?.message
+        self.messages = nil  // populated by broadcastGroupedSnapshot if applicable
     }
 
     public init(from decoder: Decoder) throws {
@@ -217,6 +228,7 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.effort = try container.decodeIfPresent(String.self, forKey: .effort)
         self.planMode = try container.decodeIfPresent(Bool.self, forKey: .planMode)
         self.permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        self.provider = try container.decodeIfPresent(String.self, forKey: .provider)
         self.assistantText = try container.decode(String.self, forKey: .assistantText)
         self.userMessage = try container.decodeIfPresent(String.self, forKey: .userMessage)
         self.turns = try container.decodeIfPresent([RelayTurnSnapshotPayload].self, forKey: .turns) ?? []
@@ -224,6 +236,17 @@ public struct RelaySessionSnapshotPayload: Codable {
         self.changedFiles = try container.decode([String].self, forKey: .changedFiles)
         self.rateLimitPlanType = try container.decodeIfPresent(String.self, forKey: .rateLimitPlanType)
         self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        self.messages = try container.decodeIfPresent([RelayConversationMessagePayload].self, forKey: .messages)
+    }
+}
+
+public struct RelayConversationMessagePayload: Codable, Equatable {
+    public let role: String
+    public let text: String
+
+    public init(role: String, text: String) {
+        self.role = role
+        self.text = text
     }
 }
 
