@@ -16,6 +16,9 @@ public final class MacRelayService {
     public private(set) var runtimeEvents: [RuntimeEvent] = []
     private let runtimeEventCapacity = 1000
 
+    /// Optional trace writer — when set, every RuntimeEvent is persisted to disk.
+    public var traceWriter: TraceWriterProtocol?
+
     /// UI settings injected by the view model for snapshot broadcasts.
     /// These are not part of the agent runtime state but need to sync to iOS.
     public var planMode: Bool?
@@ -90,29 +93,34 @@ public final class MacRelayService {
         return emitted
     }
 
-    /// Ingest a raw event and also produce a unified RuntimeEvent.
-    /// The RuntimeEvent is stored in `runtimeEvents` for Trace/Timeline use.
-    /// Returns (storedRelayEvents, runtimeEvent).
+    /// Adapter for converting Codex events to RuntimeEvents.
+    private let codexAdapter = CodexRuntimeAdapter()
+
+    /// Ingest a raw event and also produce unified RuntimeEvents via the adapter.
+    /// The RuntimeEvents are stored in `runtimeEvents` for Trace/Timeline use.
+    /// Returns (storedRelayEvents, runtimeEvents).
     public func ingestWithRuntimeEvent(
         _ event: CodexAppServerEvent,
         runtime: RuntimeIdentifier,
         sessionID: String? = nil,
         runID: String? = nil
-    ) throws -> ([StoredRelayEvent], RuntimeEvent?) {
+    ) throws -> ([StoredRelayEvent], [RuntimeEvent]) {
         let relayEvents = try ingest(event)
 
-        if let runtimeEvent = reducer.runtimeEvent(
-            from: event, runtime: runtime, sessionID: sessionID, runID: runID
-        ) {
-            let seqd = runtimeEvent.withSeq(newestSeq)
-            runtimeEvents.append(seqd)
+        let adapted = codexAdapter.adapt(event, sessionID: sessionID, runID: runID)
+        var result: [RuntimeEvent] = []
+        for var evt in adapted {
+            evt = evt.withSeq(newestSeq)
+            runtimeEvents.append(evt)
             if runtimeEvents.count > runtimeEventCapacity {
                 runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
             }
-            return (relayEvents, seqd)
+            // Persist to trace file (non-blocking, fire-and-forget)
+            try? traceWriter?.write(evt)
+            result.append(evt)
         }
 
-        return (relayEvents, nil)
+        return (relayEvents, result)
     }
 
     public func snapshotEnvelope(correlationID: String? = nil) -> RelayEnvelope<RelaySnapshotPayload> {

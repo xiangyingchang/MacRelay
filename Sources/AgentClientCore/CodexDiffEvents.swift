@@ -6,6 +6,15 @@ public struct CodexTurnDiffUpdated {
     public let diff: String
     public let rawParams: [String: Any]
 
+    /// Create from RuntimeEvent data (file list only, no raw diff).
+    public init(changedFiles: [String]) {
+        self.threadID = nil
+        self.turnID = nil
+        // Reconstruct a minimal diff header for each file so changedFiles parsing works.
+        self.diff = changedFiles.map { "diff --git a/\($0) b/\($0)" }.joined(separator: "\n")
+        self.rawParams = [:]
+    }
+
     public init?(method: String, params: [String: Any]?) {
         guard method == "turn/diff/updated", let params else {
             return nil
@@ -48,6 +57,18 @@ public struct CodexFileChangeUpdated {
     public let changeKind: String?
     public let diff: String?
     public let rawItem: [String: Any]
+
+    /// Create from RuntimeEvent data (path + changeKind only).
+    public init(path: String, changeKind: String) {
+        self.method = "item/completed"
+        self.threadID = nil
+        self.turnID = nil
+        self.itemID = nil
+        self.path = path
+        self.changeKind = changeKind
+        self.diff = nil
+        self.rawItem = [:]
+    }
 
     public init?(method: String, params: [String: Any]?) {
         guard method == "item/started" || method == "item/completed",

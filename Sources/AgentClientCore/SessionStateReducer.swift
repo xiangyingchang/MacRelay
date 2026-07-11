@@ -15,6 +15,14 @@ public struct SessionSnapshot {
     public var rateLimit: RateLimitSnapshot?
     public var hasExited = false
 
+    // MARK: - Run Tracking
+
+    /// The currently active run (one task execution).
+    public var activeRun: AgentRun?
+
+    /// Completed runs history.
+    public var completedRuns: [AgentRun] = []
+
     public init() {}
 }
 
@@ -126,6 +134,15 @@ public enum SessionReducerAction {
     case rateLimitsUpdated(params: [String: Any])
     case modelListResult(models: [String])
     case exited(code: Int32)
+
+    // MARK: - Run Lifecycle
+
+    case runStarted(runID: String, input: String?, runtime: RuntimeIdentifier)
+    case runWaitingApproval(runID: String)
+    case runResumed(runID: String)
+    case runCompleted(runID: String, summary: String?)
+    case runFailed(runID: String, error: String?)
+    case runCancelled(runID: String)
 }
 
 public struct SessionStateReducer {
@@ -263,9 +280,165 @@ public struct SessionStateReducer {
         case .exited:
             state.hasExited = true
             state.status = .exited
+
+        // MARK: - Run Lifecycle
+
+        case let .runStarted(runID, input, runtime):
+            let run = AgentRun(
+                id: runID,
+                sessionID: state.threadID ?? "",
+                runtime: runtime,
+                status: .running,
+                input: input
+            )
+            state.activeRun = run
+
+        case let .runWaitingApproval(runID):
+            guard state.activeRun?.id == runID else { return }
+            state.activeRun?.waitForApproval()
+
+        case let .runResumed(runID):
+            guard state.activeRun?.id == runID else { return }
+            state.activeRun?.resume()
+
+        case let .runCompleted(runID, summary):
+            guard state.activeRun?.id == runID else { return }
+            state.activeRun?.complete(summary: summary)
+            if let run = state.activeRun {
+                state.completedRuns.append(run)
+            }
+            state.activeRun = nil
+
+        case let .runFailed(runID, error):
+            guard state.activeRun?.id == runID else { return }
+            state.activeRun?.fail(error: error)
+            if let run = state.activeRun {
+                state.completedRuns.append(run)
+            }
+            state.activeRun = nil
+
+        case let .runCancelled(runID):
+            guard state.activeRun?.id == runID else { return }
+            state.activeRun?.cancel()
+            if let run = state.activeRun {
+                state.completedRuns.append(run)
+            }
+            state.activeRun = nil
         }
     }
 
+    // MARK: - RuntimeEvent → Actions (Primary Path)
+
+    /// Convert a RuntimeEvent into reducer actions.
+    /// This is the primary entry point — the reducer only depends on RuntimeEvent,
+    /// not on any runtime-specific protocol (Codex JSON-RPC, Claude events, etc.).
+    public func actions(from event: RuntimeEvent) -> [SessionReducerAction] {
+        switch event.type {
+        case .sessionStarted:
+            if case let .sessionStarted(sid, cwd) = event.payload {
+                var params: [String: Any] = ["id": sid]
+                if let cwd { params["cwd"] = cwd }
+                return [.threadStarted(params: params)]
+            }
+            return [.threadStarted(params: [:])]
+
+        case .sessionStopped, .sessionSelected:
+            return [] // No snapshot impact
+
+        case .turnStarted:
+            if case let .turnStarted(turnID, input) = event.payload {
+                var params: [String: Any] = [:]
+                if let turnID { params["turn_id"] = turnID }
+                if let input { params["input"] = input }
+                return [.turnStarted(params: params)]
+            }
+            return [.turnStarted(params: [:])]
+
+        case .turnCompleted:
+            return [.turnCompleted(params: [:])]
+
+        case .turnError:
+            if case let .turnError(_, message) = event.payload {
+                return [.error(params: ["error": ["message": message]])]
+            }
+            return [.error(params: [:])]
+
+        case .assistantDelta:
+            if case let .assistantDelta(text) = event.payload {
+                return [.assistantDelta(text)]
+            }
+            return []
+
+        case .assistantMessageCompleted:
+            return [] // Snapshot already updated by preceding deltas
+
+        case .toolCallRequested, .toolCallCompleted, .toolCallFailed:
+            return [] // Timeline-only; no snapshot mutation
+
+        case .approvalRequested:
+            if case let .approvalRequested(requestID, tool, command, _) = event.payload {
+                // Build a minimal CodexApprovalRequest for the existing reduce() path.
+                // The method must contain "requestApproval" for CodexApprovalRequest init to succeed.
+                let method = "requestApproval_\(tool)"
+                var params: [String: Any] = [:]
+                if let command { params["command"] = command }
+                if let approval = CodexApprovalRequest(requestID: requestID, method: method, params: params) {
+                    return [.approvalRequested(approval)]
+                }
+            }
+            return []
+
+        case .approvalResolved:
+            if case let .approvalResolved(requestID, decision) = event.payload {
+                return [.approvalResolved(requestID: requestID, decision: decision)]
+            }
+            return []
+
+        case .fileChangeDetected:
+            if case let .fileChange(path, changeKind) = event.payload {
+                return [.fileChangeUpdated(CodexFileChangeUpdated(
+                    path: path, changeKind: changeKind
+                ))]
+            }
+            return []
+
+        case .diffUpdated:
+            if case let .diffUpdated(files) = event.payload {
+                return [.diffUpdated(CodexTurnDiffUpdated(changedFiles: files))]
+            }
+            return []
+
+        case .error:
+            if case let .error(message, code) = event.payload {
+                var errorDict: [String: Any] = ["message": message]
+                if let code { errorDict["code"] = code }
+                return [.error(params: ["error": errorDict])]
+            }
+            return [.error(params: [:])]
+
+        case .exited:
+            if case let .exited(code) = event.payload {
+                return [.exited(code: code)]
+            }
+            return [.exited(code: 1)]
+
+        case .settingsUpdated:
+            if case let .settingsUpdated(model, effort) = event.payload {
+                var settings: [String: Any] = [:]
+                if let model { settings["model"] = model }
+                if let effort { settings["effort"] = effort }
+                return [.settingsUpdated(params: ["threadSettings": settings])]
+            }
+            return []
+
+        case .unknown:
+            return [] // Unknown events have no snapshot impact
+        }
+    }
+
+    // MARK: - CodexAppServerEvent → Actions (Deprecated Wrapper)
+
+    @available(*, deprecated, message: "Use actions(from: RuntimeEvent) instead. Convert via CodexRuntimeAdapter.")
     public func actions(from event: CodexAppServerEvent) -> [SessionReducerAction] {
         switch event {
         case let .serverRequest(id, method, params):
@@ -316,11 +489,9 @@ public struct SessionStateReducer {
         }
     }
 
-    // MARK: - RuntimeEvent Conversion
+    // MARK: - RuntimeEvent Conversion (Deprecated — use CodexRuntimeAdapter)
 
-    /// Convert a CodexAppServerEvent into a unified RuntimeEvent.
-    /// This is the adapter layer: each runtime's raw protocol is mapped
-    /// to the shared RuntimeEvent schema.
+    @available(*, deprecated, message: "Use CodexRuntimeAdapter().adapt() instead.")
     public func runtimeEvent(
         from event: CodexAppServerEvent,
         runtime: RuntimeIdentifier,
