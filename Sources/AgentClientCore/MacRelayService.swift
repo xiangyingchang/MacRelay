@@ -56,6 +56,14 @@ public final class MacRelayService {
     private let store: EventStore
     private let connection: ConnectionSnapshotPayload
 
+    /// Dedicated monotonic counter for RuntimeEvent seq values.
+    /// Separate from the EventStore's seq (used by StoredRelayEvents) because
+    /// RuntimeEvents are persisted to the trace file, not the EventStore.
+    /// Using a dedicated counter ensures trace events always have strictly
+    /// increasing seqs, even when the deprecated ingest path produces no
+    /// StoredRelayEvent (and thus doesn't advance the store's newestSeq).
+    private var runtimeEventSeq: UInt64 = 0
+
     public init(
         eventCapacity: Int = 1000,
         connection: ConnectionSnapshotPayload = ConnectionSnapshotPayload(isPaired: true, isOnline: true),
@@ -129,7 +137,8 @@ public final class MacRelayService {
         let adapted = codexAdapter.adapt(event, sessionID: sessionID, runID: runID)
         var result: [RuntimeEvent] = []
         for var evt in adapted {
-            evt = evt.withSeq(newestSeq)
+            runtimeEventSeq += 1
+            evt = evt.withSeq(runtimeEventSeq)
             runtimeEvents.append(evt)
             if runtimeEvents.count > runtimeEventCapacity {
                 runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
@@ -151,7 +160,8 @@ public final class MacRelayService {
     @discardableResult
     public func ingestRuntimeEvent(_ event: RuntimeEvent) throws -> [StoredRelayEvent] {
         // Always store in runtimeEvents for Trace/Timeline
-        let seqd = event.withSeq(newestSeq)
+        runtimeEventSeq += 1
+        let seqd = event.withSeq(runtimeEventSeq)
         runtimeEvents.append(seqd)
         if runtimeEvents.count > runtimeEventCapacity {
             runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)

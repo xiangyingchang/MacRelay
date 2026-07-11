@@ -436,7 +436,11 @@ final class CodexRuntime: AgentRuntime {
         #endif
         }
 
-        apply(reducer.actions(from: event))
+        // Use augmentedEvent (not the original) so the local snapshot captures
+        // the user message injected from pendingDraft into turn/started.
+        // Without this, activeTurn.userMessage would be nil because the original
+        // Codex turn/started notification doesn't include the user's input.
+        apply(reducer.actions(from: augmentedEvent))
     }
 
     private func handleResponse(id: Int, result: [String: Any]?, error: Any?) {
