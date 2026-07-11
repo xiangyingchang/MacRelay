@@ -494,7 +494,19 @@ struct PlainComposerTextEditor: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let scrollView = nsView as? NSScrollView,
               let textView = scrollView.documentView as? ComposerNSTextView else { return }
+        // During IME composition the text view's string already matches the
+        // binding from textDidChange, so this is almost always a no-op.
+        // BUT — never touch the string while hasMarkedText is true, because
+        // setting textView.string = text (even to the same value) resets
+        // the NSTextView's marked range and breaks the input method.
         if textView.string != text {
+            guard !textView.hasMarkedText() else {
+                // IME composition in progress — don't overwrite the marked text.
+                // The binding was already synced by textDidChange so no data is lost.
+                textView.onEditingActivity = onEditingActivity
+                textView.textColor = NSColor(Theme.fg)
+                return
+            }
             textView.string = text
         }
         textView.onEditingActivity = onEditingActivity
@@ -547,16 +559,12 @@ final class ComposerNSTextView: NSTextView {
     /// so the user can start typing immediately without clicking.
     ///
     /// On app restart, SwiftUI may already have an internal responder set before
-    /// this NSTextView is added to the window. Using `initialFirstResponder` and
-    /// a delayed fallback handles that race — without them the text view silently
+    /// this NSTextView is added to the window. Multiple async attempts with
+    /// increasing delays handle the race — without them the text view silently
     /// never receives keyboard input.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-
-        // Tell AppKit "this is the default responder" gives the most reliable
-        // auto-focus when the window finishes initial layout.
-        window.initialFirstResponder = self
 
         // Immediate async try — works for most subsequent appearances
         // (e.g. tab switch, side-bar collapse/expand).
@@ -569,6 +577,12 @@ final class ComposerNSTextView: NSTextView {
         // SwiftUI's window-setup race claims first responder before this
         // NSTextView finishes being added to the window.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, window.firstResponder != self else { return }
+            window.makeFirstResponder(self)
+        }
+        // Final fallback — some SwiftUI + NSTextView configurations need
+        // a third attempt after all layout passes are complete.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, window.firstResponder != self else { return }
             window.makeFirstResponder(self)
         }
