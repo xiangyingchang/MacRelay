@@ -1,4 +1,5 @@
 import XCTest
+import AgentClientCore
 @testable import AgentClientMacShell
 
 @MainActor
@@ -40,5 +41,75 @@ final class SessionMessageCacheTests: XCTestCase {
 
         XCTAssertEqual(cache.messages(for: "019f09ed-3").map(\.text), ["one", "reply one"])
         XCTAssertEqual(cache.messages(for: "019f09ed-5").map(\.text), ["Starting new session..."])
+    }
+
+    func test_remoteNewSessionBindsEmptyTranscriptInsteadOfCurrentSessionMessages() {
+        var cache = SessionMessageCache<ConversationMessage>()
+        let oldMessages = [
+            ConversationMessage(role: "User", text: "old question"),
+            ConversationMessage(role: "Codex", text: "old answer")
+        ]
+
+        cache.save(messages: oldMessages, for: "old-thread")
+        let clearedMessages = cache.beginPendingNewSession()
+        let newMessages = cache.bindPendingNewSession(
+            threadID: "new-thread",
+            currentMessages: oldMessages
+        )
+
+        XCTAssertTrue(clearedMessages.isEmpty)
+        XCTAssertTrue(newMessages.isEmpty)
+        XCTAssertEqual(cache.messages(for: "old-thread").map(\.text), ["old question", "old answer"])
+        XCTAssertTrue(cache.messages(for: "new-thread").isEmpty)
+    }
+
+    func test_failedRemoteNewSessionCanRestorePreviousTranscript() {
+        var cache = SessionMessageCache<ConversationMessage>()
+        let oldMessages = [ConversationMessage(role: "User", text: "keep me")]
+        cache.save(messages: oldMessages, for: "old-thread")
+
+        _ = cache.beginPendingNewSession()
+        cache.cancelPendingNewSession()
+
+        XCTAssertEqual(cache.messages(for: "old-thread").map(\.text), ["keep me"])
+        XCTAssertTrue(cache.messages(for: "failed-new-thread").isEmpty)
+    }
+
+    func test_failedRemoteNewSessionRestoresJournalOnlyTranscript() {
+        let archived = [ConversationMessage(role: "User", text: "archived question")]
+
+        let restored = SessionTranscriptRestorer.restore(
+            cached: [],
+            archivedWithSteps: [],
+            archivedPlain: archived
+        )
+
+        XCTAssertEqual(restored.map(\.text), ["archived question"])
+    }
+
+    func test_providerReplacementRebindsNewSessionSuccessAndFailureCallbacks() {
+        let firstRuntime = AgentRuntime()
+        let replacementRuntime = AgentRuntime()
+        var started: [String] = []
+        var failures: [String] = []
+
+        RuntimeLifecycleBinder.bind(
+            runtime: firstRuntime,
+            onEvent: { _ in },
+            onThreadStarted: { started.append("first:\($0)") },
+            onSessionStartFailed: { failures.append("first:\($0)") }
+        )
+        RuntimeLifecycleBinder.bind(
+            runtime: replacementRuntime,
+            onEvent: { _ in },
+            onThreadStarted: { started.append("replacement:\($0)") },
+            onSessionStartFailed: { failures.append("replacement:\($0)") }
+        )
+
+        replacementRuntime.onThreadStarted?("new-thread")
+        replacementRuntime.reportSessionStartFailure("start failed")
+
+        XCTAssertEqual(started, ["replacement:new-thread"])
+        XCTAssertEqual(failures, ["replacement:start failed"])
     }
 }

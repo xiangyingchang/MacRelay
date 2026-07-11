@@ -41,6 +41,13 @@ open class AgentRuntime: ObservableObject {
 
     open var onEventReceived: ((CodexAppServerEvent) -> Void)?
     open var onThreadStarted: ((String) -> Void)?
+    /// Emitted when an accepted asynchronous session start cannot produce a
+    /// thread. Shell state must roll back its pending-new transcript.
+    open var onSessionStartFailed: ((String) -> Void)?
+
+    public func reportSessionStartFailure(_ message: String) {
+        onSessionStartFailed?(message)
+    }
 
     public init() {}
 
@@ -117,6 +124,19 @@ public struct MacRelayRuntimeCommandDispatcher {
     /// (active vs workspace) so the WebSocket server can include both in the response.
     public var onSnapshotGet: (() -> (availableSessions: [RelaySessionInfoPayload], workspaceSessions: [RelaySessionInfoPayload])?)?
 
+    /// Called when iOS sends session.select — delegates to the ShellViewModel
+    /// so it can load messages from cache/journal for the target session.
+    public var onSessionSelect: ((String) -> Void)?
+
+    /// Called after a remote session.start request has been accepted by the
+    /// runtime, but before its asynchronous thread/started event can arrive.
+    /// The shell uses this to isolate the new thread from the old transcript.
+    public var onSessionStart: (() -> Void)?
+
+    /// Called when iOS requests snapshot.get — returns current conversation
+    /// messages so the snapshot includes them.
+    public var onGetMessages: (() -> [RelayConversationMessagePayload])?
+
     public init(
         runtime: AgentRuntime,
         defaultCWD: @escaping () -> String,
@@ -147,8 +167,16 @@ public struct MacRelayRuntimeCommandDispatcher {
         switch commandType {
         case .sessionStart:
             let payload = try decoder.decode(RelaySessionStartCommandPayload.self, from: payloadData)
+            let previousSessionID = runtime.selectedSessionID ?? runtime.currentThreadID
+            print("[Dispatcher] sessionStart: prompt=\(payload.initialPrompt ?? "nil") cwd=\(payload.cwd) isAppRunning=\(runtime.isAppServerRunning) isInit=\(runtime.isInitialized) isIniting=\(runtime.isInitializing) currentThread=\(runtime.currentThreadID ?? "nil")")
+            // session.start always means a new conversation. Disconnect from
+            // the selected thread before enqueueing, including when the caller
+            // supplies an initial prompt; otherwise enqueueDraft starts a turn
+            // on the old thread.
+            runtime.clearCurrentThread()
             if let initialPrompt = payload.initialPrompt, !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                try runtime.enqueueDraft(
+                do {
+                    try runtime.enqueueDraft(
                     cwd: payload.cwd,
                     text: initialPrompt,
                     model: payload.model,
@@ -156,15 +184,21 @@ public struct MacRelayRuntimeCommandDispatcher {
                     threadSandbox: threadSandbox(forPermissionMode: payload.permissionMode, explicitSandbox: payload.sandboxMode),
                     turnSandbox: turnSandbox(forPermissionMode: payload.permissionMode, explicitSandbox: payload.sandboxMode),
                     approvalPolicy: payload.approvalPolicy ?? approvalPolicy(forPermissionMode: payload.permissionMode)
-                )
+                    )
+                } catch {
+                    if let previousSessionID { try? runtime.selectSession(sessionID: previousSessionID) }
+                    throw error
+                }
+                onSessionStart?()
                 return .dispatched("session.start with prompt")
             }
             // No initialPrompt: create a fresh thread (not a turn on the
             // existing one). Clear currentThread first so enqueueDraft's
             // else-if chain reaches startThread(draft:) instead of
             // startTurnFromDraft.
-            runtime.clearCurrentThread()
-            try runtime.enqueueDraft(
+            print("[Dispatcher] sessionStart: after clearCurrentThread, currentThread=\(runtime.currentThreadID ?? "nil")")
+            do {
+                try runtime.enqueueDraft(
                 cwd: payload.cwd,
                 text: "",
                 model: payload.model,
@@ -172,11 +206,21 @@ public struct MacRelayRuntimeCommandDispatcher {
                 threadSandbox: threadSandbox(forPermissionMode: payload.permissionMode, explicitSandbox: payload.sandboxMode),
                 turnSandbox: turnSandbox(forPermissionMode: payload.permissionMode, explicitSandbox: payload.sandboxMode),
                 approvalPolicy: payload.approvalPolicy ?? approvalPolicy(forPermissionMode: payload.permissionMode)
-            )
+                )
+            } catch {
+                if let previousSessionID { try? runtime.selectSession(sessionID: previousSessionID) }
+                throw error
+            }
+            onSessionStart?()
             return .dispatched("session.start ready")
 
         case .turnStart:
             let payload = try decoder.decode(RelayTurnStartCommandPayload.self, from: payloadData)
+            // If iOS targets a different session than Mac's current one, switch first.
+            if !payload.sessionID.isEmpty, payload.sessionID != runtime.selectedSessionID {
+                try runtime.selectSession(sessionID: payload.sessionID)
+                onSessionSelect?(payload.sessionID)
+            }
             let permissionMode = payload.permissionMode ?? "Default"
             try runtime.enqueueDraft(
                 cwd: effectiveCWD,
@@ -214,6 +258,7 @@ public struct MacRelayRuntimeCommandDispatcher {
         case .sessionSelect:
             let payload = try decoder.decode(RelaySessionSelectCommandPayload.self, from: payloadData)
             try runtime.selectSession(sessionID: payload.sessionID)
+            onSessionSelect?(payload.sessionID)
             return .dispatched("session.select sessionID=\(payload.sessionID)")
 
         case .sessionStop:

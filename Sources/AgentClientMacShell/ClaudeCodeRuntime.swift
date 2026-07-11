@@ -42,6 +42,9 @@ final class ClaudeCodeRuntime: AgentRuntime {
     private var lastStderr = ""
     private var pendingResumeThreadID: String?
     private var restoredSessionIDs = Set<String>()
+    /// Tracks thread IDs that have already fired onThreadStarted.
+    /// Prevents response + notification from both firing the callback.
+    private var processedThreadIDs = Set<String>()
     private let reducer = SessionStateReducer()
     private var nextId = 1
 
@@ -60,7 +63,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         let approvalPolicy: String
     }
 
-    private enum PendingRequestKind: String {
+    enum PendingRequestKind: String {
         case initialize, modelList, threadStart, threadResume, turnStart, settingsUpdate
     }
 
@@ -70,6 +73,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         pendingDraft = nil
         currentThreadID = nil
         latestTurnID = nil
+        processedThreadIDs.removeAll()
         statusText = "Current thread cleared"
     }
 
@@ -161,6 +165,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         latestTurnID = nil
         pendingRequests.removeAll()
         pendingDraft = nil
+        processedThreadIDs.removeAll()
         statusText = "Claude app-server stopped"
     }
 
@@ -182,6 +187,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         cwd: String, text: String, model: String?, effort: String?,
         threadSandbox: String, turnSandbox: String, approvalPolicy: String
     ) throws {
+        print("[CCRuntime] enqueueDraft: text=\(text.isEmpty ? "EMPTY" : text.prefix(30)) isAppRunning=\(isAppServerRunning) isInit=\(isInitialized) isIniting=\(isInitializing) currentThread=\(currentThreadID ?? "nil") isProcessing=\(isProcessingTurn)")
         guard !isProcessingTurn else {
             throw MacRelayBridgeError.turnInProgress("previous turn still processing — wait for completion")
         }
@@ -194,14 +200,18 @@ final class ClaudeCodeRuntime: AgentRuntime {
         resetSteps()
 
         if !isAppServerRunning {
+            print("[CCRuntime] enqueueDraft: starting app-server")
             try startAppServer(cwd: cwd)
         }
         if !isInitialized {
             if !isInitializing { _ = try initialize() }
+            print("[CCRuntime] enqueueDraft: initializing → will auto-send")
             statusText = "Initializing → will auto-send..."
         } else if currentThreadID == nil {
+            print("[CCRuntime] enqueueDraft: calling startThread")
             try startThread(draft: pendingDraft!)
         } else if let pendingResumeThreadID {
+            print("[CCRuntime] enqueueDraft: resuming thread \(pendingResumeThreadID)")
             try resumeThread(threadID: pendingResumeThreadID)
         } else {
             // Wrap in do/catch so pendingDraft is cleared on error,
@@ -260,6 +270,20 @@ final class ClaudeCodeRuntime: AgentRuntime {
             ))
         }
         restoredSessionIDs.insert(sessionID)
+    }
+
+    // MARK: - Internal (test support)
+
+    /// Expose handleLine for testing the message processing pipeline.
+    /// Used by regression tests to simulate JSON-RPC responses and notifications.
+    func simulateLine(_ line: String) {
+        handleLine(line)
+    }
+
+    /// Register a pending request so the next response with this ID is processed.
+    /// Used by tests to simulate the state after `startThread()` sends a request.
+    func registerPendingRequest(id: Int, kind: PendingRequestKind) {
+        pendingRequests[id] = PendingRequest(kind: kind, createdAt: Date())
     }
 
     // MARK: - Private
@@ -376,13 +400,18 @@ final class ClaudeCodeRuntime: AgentRuntime {
             isInitializing = false
             updateLastStep(status: .failed)
             addStep(.error, detail: "\(error)", status: .failed)
+            let failedPendingSessionStart = pendingDraft != nil
             if pending.kind == .threadStart || pending.kind == .threadResume || pending.kind == .turnStart || pending.kind == .initialize || pending.kind == .modelList {
                 pendingDraft = nil
             }
             let errorDict = error as? [String: Any]
+            let message = errorDict?["message"] as? String ?? "\(error)"
+            if failedPendingSessionStart {
+                reportSessionStartFailure(message)
+            }
             apply(.error(params: [
                 "error": [
-                    "message": errorDict?["message"] as? String ?? "\(error)",
+                    "message": message,
                     "code": errorDict?["code"] as? String ?? ""
                 ]
             ]))
@@ -413,22 +442,30 @@ final class ClaudeCodeRuntime: AgentRuntime {
         case .threadStart:
             statusText = "thread/start response"
             addStep(.threadStart)
+            print("[CCRuntime] threadStart response: result=\(result ?? [:]) currentThread=\(currentThreadID ?? "nil")")
             // claude-app-server returns thread_id (snake_case), Codex returns id
             if let threadID = result?["thread_id"] as? String
                 ?? result?["id"] as? String
                 ?? (result?["thread"] as? [String: Any])?["id"] as? String {
-                if currentThreadID == nil {
-                    currentThreadID = threadID
-                    recordSession(threadID: threadID, params: result)
-                    if let draft = pendingDraft, !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        if let idx = sessions.firstIndex(where: { $0.sessionID == threadID }) {
-                            sessions[idx].title = draft.text
-                        }
-                        firePendingTurn(threadID: threadID)
-                    } else {
-                        pendingDraft = nil
-                        statusText = "thread ready"
+                print("[CCRuntime] threadStart: extracted threadID=\(threadID) currentThread=\(currentThreadID ?? "nil")")
+                // Always accept the response. Do NOT guard on
+                // currentThreadID == nil — a delayed thread/started
+                // notification from a previous session could have set it,
+                // which would silently discard this valid response.
+                currentThreadID = threadID
+                recordSession(threadID: threadID, params: result)
+                if let draft = pendingDraft, !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let idx = sessions.firstIndex(where: { $0.sessionID == threadID }) {
+                        sessions[idx].title = draft.text
                     }
+                    firePendingTurn(threadID: threadID)
+                } else {
+                    pendingDraft = nil
+                    statusText = "thread ready"
+                }
+                // Fire callback exactly once per thread ID.
+                // If the notification already fired it, skip here.
+                if processedThreadIDs.insert(threadID).inserted {
                     onThreadStarted?(threadID)
                 }
             }
@@ -472,6 +509,20 @@ final class ClaudeCodeRuntime: AgentRuntime {
             if let threadID = params?["id"] as? String
                 ?? params?["thread_id"] as? String
                 ?? (params?["thread"] as? [String: Any])?["id"] as? String {
+                // Idempotency: if the response handler already processed
+                // this ID (or a newer one), skip. This prevents:
+                // (a) duplicate callbacks for the same ID
+                // (b) stale notifications overwriting a newer session
+                guard currentThreadID != threadID, processedThreadIDs.contains(threadID) == false else {
+                    print("[CCRuntime] thread/started: skipping — already processed \(threadID)")
+                    return
+                }
+                // Also skip if currentThreadID is already set to a different
+                // (newer) session — a stale notification must not overwrite it.
+                if let current = currentThreadID, current != threadID {
+                    print("[CCRuntime] thread/started: skipping stale \(threadID) — current is \(current)")
+                    return
+                }
                 currentThreadID = threadID
                 recordSession(threadID: threadID, params: params)
                 if let draft = pendingDraft, !draft.text.isEmpty {
@@ -486,7 +537,10 @@ final class ClaudeCodeRuntime: AgentRuntime {
                 if pendingDraft?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
                     pendingDraft = nil
                 }
-                onThreadStarted?(threadID)
+                // Fire callback exactly once per thread ID.
+                if processedThreadIDs.insert(threadID).inserted {
+                    onThreadStarted?(threadID)
+                }
             }
 
         case "turn/started":
@@ -630,13 +684,24 @@ final class ClaudeCodeRuntime: AgentRuntime {
     }
 
     private func firePendingDraft() {
-        guard let draft = pendingDraft else { return }
+        guard let draft = pendingDraft else {
+            print("[CCRuntime] firePendingDraft: no pending draft, bailing")
+            return
+        }
+        print("[CCRuntime] firePendingDraft: text=\(draft.text.isEmpty ? "EMPTY" : draft.text.prefix(30)) currentThread=\(currentThreadID ?? "nil") pendingResume=\(pendingResumeThreadID ?? "nil")")
         do {
             if let pendingResumeThreadID {
+                print("[CCRuntime] firePendingDraft: resuming thread \(pendingResumeThreadID)")
                 try resumeThread(threadID: pendingResumeThreadID)
             } else if currentThreadID != nil {
+                print("[CCRuntime] firePendingDraft: starting turn on thread \(currentThreadID!)")
                 try startTurnFromDraft()
             } else {
+                // Clear any stale thread ID that may have been set by a
+                // late-arriving thread/started notification from a previous
+                // session, ensuring startThread is always called for new sessions.
+                currentThreadID = nil
+                print("[CCRuntime] firePendingDraft: calling startThread")
                 try startThread(draft: draft)
             }
         } catch {
@@ -670,6 +735,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
     private func failPendingDraft(_ message: String) {
         pendingDraft = nil
         statusText = message
+        reportSessionStartFailure(message)
         apply(.error(params: [
             "error": [
                 "message": message,

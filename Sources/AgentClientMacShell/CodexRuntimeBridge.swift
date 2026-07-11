@@ -447,6 +447,10 @@ final class CodexRuntime: AgentRuntime {
             isInitializing = false
             let errorDict = error as? [String: Any]
             let message = errorDict?["message"] as? String ?? "\(error)"
+            if pendingDraft != nil {
+                pendingDraft = nil
+                reportSessionStartFailure(message)
+            }
             apply(.error(params: [
                 "error": [
                     "message": message,
@@ -606,6 +610,7 @@ final class CodexRuntime: AgentRuntime {
     private func failPendingDraft(_ message: String) {
         pendingDraft = nil
         statusText = message
+        reportSessionStartFailure(message)
         apply(.error(params: [
             "error": [
                 "message": message,

@@ -66,8 +66,9 @@ public final class RelayClientViewModel: ObservableObject {
             let wsSessions = envelope.payload.workspaceSessions ?? []
             print("[iOS] onSnapshot: sessions=\(sessions.count) ws=\(wsSessions.count)")
             self.sessionSnapshot = envelope.payload.session
-            self.availableSessions = sessions
-            self.workspaceSessions = wsSessions
+            let (active, workspace) = redistributeSessions(active: sessions, workspace: wsSessions)
+            self.availableSessions = active
+            self.workspaceSessions = workspace
             self.syncToolbarFromSnapshot()
             self.heartbeatOnline = envelope.payload.connection.isOnline
             self.lastErrorCode = nil
@@ -149,8 +150,12 @@ public final class RelayClientViewModel: ObservableObject {
         do {
             let snap = try await wsClient.getSnapshot()
             sessionSnapshot = snap.payload.session
-            availableSessions = snap.payload.availableSessions ?? []
-            workspaceSessions = snap.payload.workspaceSessions ?? []
+            let (active, workspace) = redistributeSessions(
+                active: snap.payload.availableSessions ?? [],
+                workspace: snap.payload.workspaceSessions ?? []
+            )
+            availableSessions = active
+            workspaceSessions = workspace
             syncToolbarFromSnapshot()
             heartbeatOnline = true
             updateConversation()
@@ -336,8 +341,12 @@ public final class RelayClientViewModel: ObservableObject {
             // Use snapshot.get which includes both availableSessions and workspaceSessions
             let snap = try await wsClient.getSnapshot()
             await MainActor.run {
-                self.availableSessions = snap.payload.availableSessions ?? []
-                self.workspaceSessions = snap.payload.workspaceSessions ?? []
+                let (active, workspace) = self.redistributeSessions(
+                    active: snap.payload.availableSessions ?? [],
+                    workspace: snap.payload.workspaceSessions ?? []
+                )
+                self.availableSessions = active
+                self.workspaceSessions = workspace
                 print("[iOS] fetchSessions: active=\(self.availableSessions.count) ws=\(self.workspaceSessions.count)")
             }
         } catch {
@@ -401,7 +410,7 @@ public final class RelayClientViewModel: ObservableObject {
         // Track both lists because Mac auto-saves new sessions to workspace
         // when shouldAutoSaveNewSessionsToWorkspace is true (existing workspace sessions exist).
         let existingIDs = Set(self.availableSessions.map(\.sessionID) + self.workspaceSessions.map(\.sessionID))
-        let existingCount = self.availableSessions.count + self.workspaceSessions.count
+        print("[iOS][startNewSession] existingIDs=\(existingIDs.count) sessions=\(self.availableSessions.count) ws=\(self.workspaceSessions.count)")
         let payload = RelaySessionStartCommandPayload(
             cwd: sessionSnapshot?.cwd ?? FileManager.default.currentDirectoryPath,
             model: selectedModel.isEmpty ? nil : selectedModel,
@@ -410,10 +419,16 @@ public final class RelayClientViewModel: ObservableObject {
             permissionMode: permissionMode,
             initialPrompt: initialPrompt
         )
-        let _: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
+        let response: RelayEnvelope<[String: String]> = try await wsClient.sendCommand(
             type: .sessionStart,
             payload: payload
         )
+        print("[iOS][startNewSession] response type=\(response.type)")
+        // Check for error — Mac may reject if previous turn is still processing
+        guard response.type != RelayEventType.error.rawValue else {
+            lastErrorCode = response.payload["code"] ?? RelayErrorCode.generalError.code
+            return nil
+        }
         // The Mac init chain is async (initialize → model/list → thread/start).
         // Poll snapshot until a new session appears in either list.
         let deadline = Date().addingTimeInterval(30)
@@ -425,15 +440,12 @@ public final class RelayClientViewModel: ObservableObject {
                 print("[iOS] startNewSession refresh error: \(error)")
                 continue
             }
-            let totalCount = self.availableSessions.count + self.workspaceSessions.count
-            if totalCount > existingCount {
-                // Find the new session ID by diffing against existing IDs
-                let newIDs = Set(self.availableSessions.map(\.sessionID) + self.workspaceSessions.map(\.sessionID))
-                if let newID = newIDs.subtracting(existingIDs).first {
-                    return newID
-                }
-                // Fallback: return the last session ID from either list (best guess)
-                return self.availableSessions.last?.sessionID ?? self.workspaceSessions.last?.sessionID
+            let newIDs = Set(self.availableSessions.map(\.sessionID) + self.workspaceSessions.map(\.sessionID))
+            let added = newIDs.subtracting(existingIDs)
+            print("[iOS][startNewSession] poll: total=\(newIDs.count) added=\(added.count)")
+            if let newID = added.first {
+                print("[iOS][startNewSession] found new session: \(newID)")
+                return newID
             }
         }
         return nil // Timeout — session not created
@@ -446,12 +458,19 @@ public final class RelayClientViewModel: ObservableObject {
             return
         }
         var lines: [String] = []
+        var renderedUserMessages: Set<String> = []
 
         // Prefer direct messages from the Mac VM snapshot (includes archived sessions).
         // Fall back to turns/assistantText from the runtime snapshot.
         if let msgs = snap.messages, !msgs.isEmpty {
+            print("[iOS][updateConv] snap.messages count=\(msgs.count) pending=\(pendingLocalUserMessages.count)")
             for msg in msgs {
                 lines.append("[\(msg.role.lowercased())] \(msg.text)")
+                if msg.role.lowercased() == "user" {
+                    let trimmed = msg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    renderedUserMessages.insert(trimmed)
+                    print("[iOS][updateConv]   snap user msg: \"\(trimmed)\"")
+                }
             }
         } else {
             let turns = snap.turns.isEmpty
@@ -477,14 +496,39 @@ public final class RelayClientViewModel: ObservableObject {
                 }
             }
 
-            let renderedUserMessages = Set(turns.compactMap(\.userMessage))
-            pendingLocalUserMessages.removeAll { renderedUserMessages.contains($0) }
+            renderedUserMessages = Set(turns.compactMap(\.userMessage))
+        }
+
+        // Deduplicate: remove pending messages already present in the snapshot.
+        let beforeDedup = pendingLocalUserMessages.count
+        pendingLocalUserMessages.removeAll { renderedUserMessages.contains($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if beforeDedup != pendingLocalUserMessages.count {
+            print("[iOS][updateConv] dedup removed \(beforeDedup - pendingLocalUserMessages.count) pending msgs")
         }
 
         for pending in pendingLocalUserMessages {
             lines.append("[user] \(pending)")
         }
+        print("[iOS][updateConv] final lines=\(lines.count) pending=\(pendingLocalUserMessages.count)")
         conversationMessages = lines
+    }
+
+    /// Move workspace sessions with nil cwd to active sessions.
+    /// Sessions without a workspace path should appear under "会话", not "未知空间".
+    private func redistributeSessions(
+        active: [RelaySessionInfoPayload],
+        workspace: [RelaySessionInfoPayload]
+    ) -> ([RelaySessionInfoPayload], [RelaySessionInfoPayload]) {
+        var activeSessions = active
+        var workspaceSessions: [RelaySessionInfoPayload] = []
+        for session in workspace {
+            if session.cwd == nil || session.cwd?.isEmpty == true {
+                activeSessions.append(session)
+            } else {
+                workspaceSessions.append(session)
+            }
+        }
+        return (activeSessions, workspaceSessions)
     }
 
     private func pollTurnUntilRenderedAndCompleted(userMessage: String) async {
@@ -506,7 +550,16 @@ public final class RelayClientViewModel: ObservableObject {
     private func appendPendingUserMessage(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Don't add if already present in current conversation (from snapshot).
+        let alreadyVisible = conversationMessages.contains { msg in
+            msg.hasPrefix("[user]") && msg.replacingOccurrences(of: "[user] ", with: "") == trimmed
+        }
+        if alreadyVisible {
+            print("[iOS][appendPending] skipped \"\(trimmed)\" — already in conversation")
+            return
+        }
         pendingLocalUserMessages.append(trimmed)
+        print("[iOS][appendPending] added \"\(trimmed)\" total pending=\(pendingLocalUserMessages.count)")
         updateConversation()
     }
 

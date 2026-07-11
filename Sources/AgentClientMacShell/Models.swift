@@ -51,31 +51,42 @@ final class MacShellViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        runtime.onEventReceived = { [weak self] event in
-            Task { @MainActor in
-                self?.ingestRelayEvent(event)
-            }
-        }
+        bindRuntimeLifecycleCallbacks()
+    }
 
-        runtime.onThreadStarted = { [weak self] threadID in
-            Task { @MainActor in
-                guard let self else { return }
-                let continuedArchivedID = self.continuingArchivedSessionID
-                self.bindCurrentMessages(toSession: threadID)
-                // Continuing an archived transcript creates a real runtime
-                // thread; keep that new thread in the workspace section.
-                if continuedArchivedID != nil {
-                    self.saveSessionToWorkspace(id: threadID)
-                } else if self.shouldAutoSaveNewSessionsToWorkspace {
-                    self.saveSessionToWorkspace(id: threadID)
+    /// Runtime instances are replaced on provider switch. Keep every direct
+    /// callback assignment in one repeatable binding step so a new provider
+    /// cannot lose session success/failure lifecycle delivery.
+    private func bindRuntimeLifecycleCallbacks() {
+        RuntimeLifecycleBinder.bind(
+            runtime: runtime,
+            onEvent: { [weak self] event in
+                Task { @MainActor in self?.ingestRelayEvent(event) }
+            },
+            onThreadStarted: { [weak self] threadID in
+                Task { @MainActor in
+                    guard let self else { return }
+                    let continuedArchivedID = self.continuingArchivedSessionID
+                    self.bindCurrentMessages(toSession: threadID)
+                    if continuedArchivedID != nil {
+                        self.saveSessionToWorkspace(id: threadID)
+                    } else if self.shouldAutoSaveNewSessionsToWorkspace {
+                        self.saveSessionToWorkspace(id: threadID)
+                    }
                 }
+            },
+            onSessionStartFailed: { [weak self] _ in
+                Task { @MainActor in self?.rollbackNewSession() }
             }
-        }
+        )
     }
 
     func switchProvider(to provider: String) {
         runtime.stopAppServer()
         runtime = Self.createRuntime(for: provider)
+        // Bind the replacement before any detection/initialization work can
+        // synchronously or asynchronously emit lifecycle events.
+        setupRuntimeSubscriptions()
         UserDefaults.standard.set(provider, forKey: "agentProvider")
         messages.removeAll()
         streamingMessageID = nil
@@ -84,7 +95,6 @@ final class MacShellViewModel: ObservableObject {
         selectedModel = ""
         runtime.refreshDetection()
         reconcileSelectedModel(with: runtime.modelNames)
-        setupRuntimeSubscriptions()
         // Provider is UI-owned state. Publish it immediately instead of waiting
         // for a model-list event, which may never arrive before an iOS snapshot.
         syncSettingsToRelay()
@@ -554,13 +564,7 @@ final class MacShellViewModel: ObservableObject {
     /// Start a fresh session: clear current thread, create a new one,
     /// and clear the conversation view.
     func startNewSession() {
-        saveActiveSessionMessages()
-        // Immediate visual feedback — clear conversation before the async chain runs
-        messages = messageCache.beginPendingNewSession()
-        streamingMessageID = nil
-        streamingTurnID = nil
-        lastAssistantTextLength = 0
-        isCreatingNewSession = true
+        prepareForNewSession()
         do {
             // Just initialize the app-server and fetch models — don't enqueue a draft.
             // The user's first real message will create the thread + turn.
@@ -578,6 +582,40 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
+    /// Isolate a newly requested thread from the currently selected
+    /// transcript. Both the Mac button and iOS session.start must pass through
+    /// this transition before thread/started binds the real thread ID.
+    private func prepareForNewSession() {
+        saveActiveSessionMessages()
+        messages = messageCache.beginPendingNewSession()
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
+        isCreatingNewSession = true
+    }
+
+    /// Restore the previously active transcript when the runtime rejects the
+    /// asynchronous thread creation after session.start was accepted.
+    private func rollbackNewSession() {
+        guard isCreatingNewSession else { return }
+        messageCache.cancelPendingNewSession()
+        messages = SessionTranscriptRestorer.restore(
+            cached: messageCache.messages(for: activeRunID),
+            archivedWithSteps: journal.loadArchivedMessagesWithSteps(sessionID: activeRunID),
+            archivedPlain: journal.loadArchivedSessionMessages(sessionID: activeRunID).map {
+                ConversationMessage(role: $0.role, text: $0.text)
+            }
+        )
+        // session.start cleared the runtime's current thread before the async
+        // request failed. Re-select the previous session so the restored UI
+        // transcript and the next turn target remain consistent.
+        try? runtime.selectSession(sessionID: activeRunID)
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
+        isCreatingNewSession = false
+    }
+
     /// Switch to an existing session: update runtime, clear conversation,
     /// and show a confirmation message.
     func selectSession(id: String) {
@@ -589,13 +627,24 @@ final class MacShellViewModel: ObservableObject {
             activeRunID = id
             return
         }
+        // Always update activeRunID and clear streaming state, even if the
+        // runtime doesn't know about this session yet (race condition:
+        // sessionStart creates the thread async, sessionSelect may arrive
+        // before thread/start response).
+        activeRunID = id
+        isCreatingNewSession = false
+        streamingMessageID = nil
+        streamingTurnID = nil
+        lastAssistantTextLength = 0
         do {
             try runtime.selectSession(sessionID: id)
         } catch {
-            messages.append(ConversationMessage(role: "Tool", text: "Failed to select session: \(error)"))
+            // Session not in runtime yet — clear messages and wait for
+            // thread/started notification to populate the session.
+            messages = []
+            record(.sessionStart, "session.select id=\(id) (deferred)")
             return
         }
-        activeRunID = id
         let cached = messageCache.messages(for: id)
         if !cached.isEmpty {
             messages = cached
@@ -604,10 +653,6 @@ final class MacShellViewModel: ObservableObject {
             let archived = journal.loadArchivedSessionMessages(sessionID: id)
             messages = archived.isEmpty ? [] : archived.map { ConversationMessage(role: $0.role, text: $0.text) }
         }
-        isCreatingNewSession = false
-        streamingMessageID = nil
-        streamingTurnID = nil
-        lastAssistantTextLength = 0
         record(.sessionStart, "session.select id=\(id)")
     }
 
@@ -924,6 +969,23 @@ final class MacShellViewModel: ObservableObject {
                 let groups = buildGroupedSessionLists()
                 return (availableSessions: groups.activeSessions, workspaceSessions: groups.workspaceSessions)
             }
+            // Wire onSessionSelect so iOS session.select loads messages from cache/journal.
+            // MUST be synchronous — the dispatcher already runs on the main queue,
+            // and iOS calls refresh() immediately after sessionSelect returns.
+            dispatcher.onSessionSelect = { [weak self] sessionID in
+                self?.selectSession(id: sessionID)
+            }
+            // iOS session.start creates the runtime thread directly through
+            // the dispatcher, so mirror the Mac new-session state transition.
+            // Without this, thread/started binds the old transcript to the new ID.
+            dispatcher.onSessionStart = { [weak self] in
+                self?.prepareForNewSession()
+            }
+            // Wire onGetMessages so snapshot.get includes current conversation messages
+            dispatcher.onGetMessages = { [weak self] in
+                guard let self else { return [] }
+                return messages.map { RelayConversationMessagePayload(role: $0.role, text: $0.text) }
+            }
             // — no additional code between dispatcher init and wsServer —
             let wsServer = MacRelayWebSocketServer(
                 relayService: relayService,
@@ -1165,6 +1227,14 @@ final class MacShellViewModel: ObservableObject {
     }
 
     private func ingestRelayEvent(_ event: CodexAppServerEvent) {
+        if isCreatingNewSession {
+            switch event {
+            case .notification(method: "error", params: _), .exit:
+                rollbackNewSession()
+            default:
+                break
+            }
+        }
         // Remote turn/started — inject user message into Mac UI when the turn
         // came from an iOS client (streamingMessageID is nil because sendDraftReal
         // wasn't called locally).
@@ -1332,6 +1402,10 @@ struct SessionMessageCache<Message> {
         return messages
     }
 
+    mutating func cancelPendingNewSession() {
+        pendingNewSession = nil
+    }
+
     mutating func save(messages: [Message], for sessionID: String) {
         histories[sessionID] = messages
     }
@@ -1343,6 +1417,28 @@ struct SessionMessageCache<Message> {
     mutating func clear() {
         histories.removeAll()
         pendingNewSession = nil
+    }
+}
+
+struct SessionTranscriptRestorer {
+    static func restore<Message>(cached: [Message], archivedWithSteps: [Message], archivedPlain: [Message]) -> [Message] {
+        if !cached.isEmpty { return cached }
+        if !archivedWithSteps.isEmpty { return archivedWithSteps }
+        return archivedPlain
+    }
+}
+
+@MainActor
+struct RuntimeLifecycleBinder {
+    static func bind(
+        runtime: AgentRuntime,
+        onEvent: @escaping (CodexAppServerEvent) -> Void,
+        onThreadStarted: @escaping (String) -> Void,
+        onSessionStartFailed: @escaping (String) -> Void
+    ) {
+        runtime.onEventReceived = onEvent
+        runtime.onThreadStarted = onThreadStarted
+        runtime.onSessionStartFailed = onSessionStartFailed
     }
 }
 

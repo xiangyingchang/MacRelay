@@ -304,6 +304,13 @@ public final class MacRelayWebSocketServer {
                     envelope.payload.availableSessions = groups.availableSessions
                     envelope.payload.workspaceSessions = groups.workspaceSessions
                 }
+                // Inject conversation messages from the Mac UI so iOS can display them.
+                let msgs = commandDispatcher.flatMap { dispatcher in
+                    DispatchQueue.main.sync(execute: { dispatcher.onGetMessages?() })
+                }
+                if let msgs, !msgs.isEmpty {
+                    envelope.payload.session?.messages = msgs
+                }
                 return try encode(envelope)
             case RelayCommandType.replayFrom.rawValue:
                 let replayRequest = try payloadData.map {

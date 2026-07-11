@@ -12,6 +12,7 @@ public struct PairingView: View {
     @State private var claimError: String?
     @State private var isClaimingPairing = false
     @State private var showingPasteSheet = false
+    @State private var isQRDetected = false
 
     public init(viewModel: RelayClientViewModel) { self.viewModel = viewModel }
 
@@ -54,18 +55,29 @@ public struct PairingView: View {
                     guard !isClaimingPairing else { return }
                     pairingInput = code
                     claimFromInput(code)
+                } onQRPosition: { detected in
+                    isQRDetected = detected
                 } onError: { message in
                     claimError = message
                 }
 
                 cornerViewfinder
+
+                // Scanning line animation (idle state only)
+                if !isClaimingPairing && !isQRDetected {
+                    scanningLine
+                }
             }
             .frame(width: 280, height: 280)
             .clipShape(RoundedRectangle(cornerRadius: 24))
             .overlay(
                 RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                    .stroke(
+                        isQRDetected ? Color.green.opacity(0.6) : Color.primary.opacity(0.1),
+                        lineWidth: isQRDetected ? 2 : 1
+                    )
             )
+            .animation(.easeInOut(duration: 0.2), value: isQRDetected)
 
             Spacer().frame(height: 24)
 
@@ -316,6 +328,13 @@ public struct PairingView: View {
             }
         }
     }
+
+    /// Animated scanning line that sweeps vertically through the viewfinder.
+    private var scanningLine: some View {
+        GeometryReader { geo in
+            ScanningLineView(height: geo.size.height)
+        }
+    }
     #endif
 }
 
@@ -447,16 +466,18 @@ public struct SettingsView: View {
 #if os(iOS)
 private struct QRScannerView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
+    let onQRPosition: (Bool) -> Void
     let onError: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onCode: onCode)
+        Coordinator(onCode: onCode, onQRPosition: onQRPosition)
     }
 
     func makeUIViewController(context: Context) -> QRScannerViewController {
         let controller = QRScannerViewController()
         controller.delegate = context.coordinator
         controller.onError = onError
+        context.coordinator.viewController = controller
         return controller
     }
 
@@ -464,10 +485,13 @@ private struct QRScannerView: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         private let onCode: (String) -> Void
+        private let onQRPosition: (Bool) -> Void
         private var didScan = false
+        weak var viewController: QRScannerViewController?
 
-        init(onCode: @escaping (String) -> Void) {
+        init(onCode: @escaping (String) -> Void, onQRPosition: @escaping (Bool) -> Void) {
             self.onCode = onCode
+            self.onQRPosition = onQRPosition
         }
 
         func metadataOutput(
@@ -475,12 +499,24 @@ private struct QRScannerView: UIViewControllerRepresentable {
             didOutput metadataObjects: [AVMetadataObject],
             from connection: AVCaptureConnection
         ) {
-            guard !didScan,
-                  let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-                  object.type == .qr,
-                  let value = object.stringValue else { return }
-            didScan = true
-            onCode(value)
+            guard !didScan else { return }
+
+            let qrObjects = metadataObjects.compactMap { $0 as? AVMetadataMachineReadableCodeObject }
+                .filter { $0.type == .qr }
+
+            if let first = qrObjects.first {
+                onQRPosition(true)
+                // Actively focus and zoom on the detected QR code
+                viewController?.handleQRDetected(first)
+
+                if let value = first.stringValue {
+                    didScan = true
+                    onCode(value)
+                }
+            } else {
+                onQRPosition(false)
+                viewController?.handleQRLost()
+            }
         }
     }
 }
@@ -491,6 +527,17 @@ private final class QRScannerViewController: UIViewController {
 
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var device: AVCaptureDevice?
+    private var focusView: UIView?
+    private var highlightView: UIView?
+
+    private var lastFocusTime: Date = .distantPast
+    private var lastZoomTime: Date = .distantPast
+    private let focusCooldown: TimeInterval = 0.15
+    private let zoomCooldown: TimeInterval = 0.3
+    private var isZoomed = false
+    private let defaultZoomFactor: CGFloat = 1.0
+    private let maxZoomFactor: CGFloat = 5.0
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -510,6 +557,8 @@ private final class QRScannerViewController: UIViewController {
         }
     }
 
+    // MARK: - Camera Setup
+
     private func configureCameraAccess() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
@@ -526,8 +575,8 @@ private final class QRScannerViewController: UIViewController {
     }
 
     private func setupScanner() {
-        guard let device = AVCaptureDevice.default(for: .video),
-              let input = try? AVCaptureDeviceInput(device: device) else {
+        guard let cam = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: cam) else {
             onError?("Camera is unavailable.")
             return
         }
@@ -538,10 +587,21 @@ private final class QRScannerViewController: UIViewController {
             return
         }
 
+        // High quality preset for better resolution during digital zoom
+        if session.canSetSessionPreset(.high) {
+            session.sessionPreset = .high
+        }
+
         session.addInput(input)
         session.addOutput(output)
         output.setMetadataObjectsDelegate(delegate, queue: .main)
         output.metadataObjectTypes = [.qr]
+
+        // NOTE: No rectOfInterest — scan the ENTIRE frame.
+        // We want to detect QR codes anywhere and actively focus/zoom on them.
+
+        self.device = cam
+        configureCameraDevice(cam)
 
         let preview = AVCaptureVideoPreviewLayer(session: session)
         preview.videoGravity = .resizeAspectFill
@@ -549,9 +609,274 @@ private final class QRScannerViewController: UIViewController {
         view.layer.addSublayer(preview)
         previewLayer = preview
 
+        // Tap-to-focus gesture
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        view.addGestureRecognizer(tap)
+
         DispatchQueue.global(qos: .userInitiated).async { [session] in
             session.startRunning()
         }
     }
+
+    private func configureCameraDevice(_ cam: AVCaptureDevice) {
+        do {
+            try cam.lockForConfiguration()
+
+            if cam.isFocusModeSupported(.continuousAutoFocus) {
+                cam.focusMode = .continuousAutoFocus
+            }
+            if cam.isExposureModeSupported(.continuousAutoExposure) {
+                cam.exposureMode = .continuousAutoExposure
+            }
+            if cam.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                cam.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+
+            cam.unlockForConfiguration()
+        } catch {}
+    }
+
+    // MARK: - Auto-Focus + Zoom on QR Detection
+
+    /// Called by the Coordinator when a QR code is detected in the frame.
+    /// Actively focuses on the QR code and applies digital zoom.
+    func handleQRDetected(_ metadataObject: AVMetadataMachineReadableCodeObject) {
+        guard let cam = device, let preview = previewLayer else { return }
+
+        // Convert metadata bounds (normalized 0-1, origin bottom-left) to layer coordinates
+        let layerRect = preview.layerRectConverted(fromMetadataOutputRect: metadataObject.bounds)
+        let center = CGPoint(x: layerRect.midX, y: layerRect.midY)
+
+        // Normalize to 0-1 for focusPointOfInterest
+        let normalizedCenter = CGPoint(
+            x: center.x / view.bounds.width,
+            y: center.y / view.bounds.height
+        )
+
+        let now = Date()
+
+        // Focus on QR code position (with cooldown)
+        if now.timeIntervalSince(lastFocusTime) > focusCooldown {
+            lastFocusTime = now
+            do {
+                try cam.lockForConfiguration()
+
+                if cam.isFocusPointOfInterestSupported {
+                    cam.focusPointOfInterest = normalizedCenter
+                }
+                if cam.isFocusModeSupported(.autoFocus) {
+                    cam.focusMode = .autoFocus
+                }
+                if cam.isExposurePointOfInterestSupported {
+                    cam.exposurePointOfInterest = normalizedCenter
+                }
+                if cam.isExposureModeSupported(.autoExpose) {
+                    cam.exposureMode = .autoExpose
+                }
+
+                cam.unlockForConfiguration()
+            } catch {}
+        }
+
+        // Digital zoom: smaller QR code in frame → more zoom (with cooldown)
+        if now.timeIntervalSince(lastZoomTime) > zoomCooldown {
+            lastZoomTime = now
+            let qrFraction = max(layerRect.width / view.bounds.width, 0.01)
+            let targetZoom = min(1.2 / qrFraction, maxZoomFactor)
+
+            // Only zoom in, don't zoom back out abruptly
+            if targetZoom > cam.videoZoomFactor * 1.05 {
+                isZoomed = true
+                do {
+                    try cam.lockForConfiguration()
+                    cam.ramp(toVideoZoomFactor: targetZoom, withRate: 3.0)
+                    cam.unlockForConfiguration()
+                } catch {}
+            }
+        }
+
+        // Show green highlight at QR code position
+        showHighlight(at: layerRect)
+    }
+
+    /// Called when QR code is no longer detected — gradually reset zoom.
+    func handleQRLost() {
+        guard let cam = device else { return }
+
+        if isZoomed {
+            isZoomed = false
+            do {
+                try cam.lockForConfiguration()
+                cam.ramp(toVideoZoomFactor: defaultZoomFactor, withRate: 2.0)
+                cam.unlockForConfiguration()
+            } catch {}
+        }
+
+        // Return to continuous autofocus
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, let cam = self.device else { return }
+            do {
+                try cam.lockForConfiguration()
+                if cam.isFocusModeSupported(.continuousAutoFocus) {
+                    cam.focusMode = .continuousAutoFocus
+                }
+                if cam.isExposureModeSupported(.continuousAutoExposure) {
+                    cam.exposureMode = .continuousAutoExposure
+                }
+                cam.unlockForConfiguration()
+            } catch {}
+        }
+
+        hideHighlight()
+    }
+
+    // MARK: - Visual Feedback
+
+    private func showHighlight(at rect: CGRect) {
+        if highlightView == nil {
+            let v = UIView()
+            v.layer.borderColor = UIColor.systemGreen.cgColor
+            v.layer.borderWidth = 2
+            v.layer.cornerRadius = 4
+            v.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.08)
+            view.addSubview(v)
+            highlightView = v
+        }
+        // Add some padding around the detected QR code
+        let padding: CGFloat = 8
+        highlightView?.frame = rect.insetBy(dx: -padding, dy: -padding)
+        highlightView?.alpha = 1
+    }
+
+    private func hideHighlight() {
+        UIView.animate(withDuration: 0.3) {
+            self.highlightView?.alpha = 0
+        }
+    }
+
+    // MARK: - Tap to Focus
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        guard let cam = device else { return }
+        let point = gesture.location(in: view)
+        let focusPoint = CGPoint(
+            x: point.x / view.bounds.width,
+            y: point.y / view.bounds.height
+        )
+
+        do {
+            try cam.lockForConfiguration()
+
+            if cam.isFocusPointOfInterestSupported {
+                cam.focusPointOfInterest = focusPoint
+            }
+            if cam.isFocusModeSupported(.autoFocus) {
+                cam.focusMode = .autoFocus
+            }
+            if cam.isExposurePointOfInterestSupported {
+                cam.exposurePointOfInterest = focusPoint
+            }
+            if cam.isExposureModeSupported(.autoExpose) {
+                cam.exposureMode = .autoExpose
+            }
+
+            cam.unlockForConfiguration()
+        } catch {}
+
+        showFocusIndicator(at: point)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self, let cam = self.device else { return }
+            do {
+                try cam.lockForConfiguration()
+                if cam.isFocusModeSupported(.continuousAutoFocus) {
+                    cam.focusMode = .continuousAutoFocus
+                }
+                if cam.isExposureModeSupported(.continuousAutoExposure) {
+                    cam.exposureMode = .continuousAutoExposure
+                }
+                cam.unlockForConfiguration()
+            } catch {}
+        }
+    }
+
+    private func showFocusIndicator(at point: CGPoint) {
+        focusView?.removeFromSuperview()
+
+        let size: CGFloat = 70
+        let indicator = UIView(frame: CGRect(x: 0, y: 0, width: size, height: size))
+        indicator.center = point
+        indicator.layer.borderColor = UIColor.white.cgColor
+        indicator.layer.borderWidth = 1.5
+        indicator.layer.cornerRadius = 4
+        indicator.backgroundColor = .clear
+        indicator.alpha = 0
+        view.addSubview(indicator)
+        focusView = indicator
+
+        UIView.animate(withDuration: 0.15) {
+            indicator.alpha = 1
+            indicator.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+        } completion: { _ in
+            UIView.animate(withDuration: 0.1) {
+                indicator.transform = .identity
+            }
+        }
+
+        UIView.animate(withDuration: 0.3, delay: 0.8) {
+            indicator.alpha = 0
+        }
+    }
+}
+
+// MARK: - Scanning Line Animation
+
+/// A UIView that renders an animated horizontal line sweeping vertically.
+private final class ScanningLineUIView: UIView {
+    private let lineLayer = CALayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+
+        lineLayer.backgroundColor = UIColor.white.withAlphaComponent(0.6).cgColor
+        lineLayer.cornerRadius = 1
+        layer.addSublayer(lineLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        lineLayer.frame = CGRect(x: 16, y: 0, width: bounds.width - 32, height: 2)
+    }
+
+    func startAnimating() {
+        let animation = CABasicAnimation(keyPath: "position.y")
+        animation.fromValue = 8.0
+        animation.toValue = bounds.height - 8.0
+        animation.duration = 2.0
+        animation.repeatCount = .infinity
+        animation.autoreverses = true
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        lineLayer.add(animation, forKey: "sweep")
+    }
+
+    func stopAnimating() {
+        lineLayer.removeAnimation(forKey: "sweep")
+    }
+}
+
+private struct ScanningLineView: UIViewRepresentable {
+    let height: CGFloat
+
+    func makeUIView(context: Context) -> ScanningLineUIView {
+        let view = ScanningLineUIView(frame: CGRect(x: 0, y: 0, width: 280, height: height))
+        view.startAnimating()
+        return view
+    }
+
+    func updateUIView(_ uiView: ScanningLineUIView, context: Context) {}
 }
 #endif

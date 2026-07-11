@@ -247,7 +247,8 @@ private struct SessionListContent: View {
                             isCreating = false
                             return
                         }
-                        try? await viewModel.refresh()
+                        // No redundant refresh() — startNewSession already polled
+                        // until the session appeared. selectSession does its own refresh.
                         try await viewModel.selectSession(sessionID: newSessionID)
                         navigationPath.append(.conversation)
                     } catch {
