@@ -34,7 +34,7 @@ final class ReplayServiceTests: XCTestCase {
         let reader = TraceReader(runID: "reader-test", baseDirectory: tempDir)
         XCTAssertTrue(reader.exists)
 
-        let result = try reader.readAll()
+        let result = reader.readAll()
         XCTAssertEqual(result.events.count, events.count)
         XCTAssertEqual(result.skipped, 0)
 
@@ -49,11 +49,11 @@ final class ReplayServiceTests: XCTestCase {
     }
 
     /// TraceReader returns empty result for missing file.
-    func testTraceReader_missingFile_returnsEmpty() throws {
+    func testTraceReader_missingFile_returnsEmpty() {
         let reader = TraceReader(runID: "nonexistent", baseDirectory: tempDir)
         XCTAssertFalse(reader.exists)
 
-        let result = try reader.readAll()
+        let result = reader.readAll()
         XCTAssertTrue(result.events.isEmpty)
         XCTAssertEqual(result.skipped, 0)
     }
@@ -67,7 +67,7 @@ final class ReplayServiceTests: XCTestCase {
         }
 
         let reader = TraceReader(runID: "seq-test", baseDirectory: tempDir)
-        let after3 = try reader.read(afterSeq: 3)
+        let after3 = reader.read(afterSeq: 3)
         XCTAssertEqual(after3.count, events.count - 3)
         XCTAssertEqual(after3.first?.seq, 4)
     }
@@ -86,7 +86,7 @@ final class ReplayServiceTests: XCTestCase {
         try writer.append(original)
 
         let reader = TraceReader(runID: "fields", baseDirectory: tempDir)
-        let result = try reader.readAll()
+        let result = reader.readAll()
         XCTAssertEqual(result.events.count, 1)
 
         let read = result.events[0]
@@ -400,7 +400,7 @@ final class ReplayServiceTests: XCTestCase {
 
         // New reader on fresh process
         let reader = TraceReader(runID: "crash-sim", baseDirectory: tempDir)
-        let result = try reader.readAll()
+        let result = reader.readAll()
         XCTAssertEqual(result.events.count, events.count)
 
         // Rebuild snapshot from recovered trace
