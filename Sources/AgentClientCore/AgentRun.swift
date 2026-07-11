@@ -32,10 +32,16 @@ public enum RunStatus: String, Codable, Equatable {
 ///
 /// Hierarchy: Session ─► Run ─► Turn
 ///
-/// Future uses:
+/// Timeline:
+/// - `createdAt`: when the run object was created (always set)
+/// - `startedAt`: when the run began executing (set on `start()`)
+/// - `finishedAt`: when the run reached a terminal state
+///
+/// Uses:
 /// - Timeline: display runs chronologically
 /// - Trace: attach per-run logs and artifacts
 /// - History: browse past runs by session
+/// - Metadata: persist run state to disk for crash recovery
 public struct AgentRun: Codable, Identifiable, Equatable {
     /// Unique identifier for this run.
     public let id: String
@@ -46,8 +52,12 @@ public struct AgentRun: Codable, Identifiable, Equatable {
     /// Which runtime executed this run (Codex, Claude Code, etc.).
     public let runtime: RuntimeIdentifier
 
-    /// When the run was created.
-    public let startedAt: Date
+    /// When the run object was created (always set at init time).
+    public let createdAt: Date
+
+    /// When the run began executing (set on `start()` transition).
+    /// Nil while status is `.created`.
+    public var startedAt: Date?
 
     /// When the run reached a terminal state (completed/failed/cancelled).
     public var finishedAt: Date?
@@ -68,7 +78,8 @@ public struct AgentRun: Codable, Identifiable, Equatable {
         id: String = UUID().uuidString,
         sessionID: String,
         runtime: RuntimeIdentifier,
-        startedAt: Date = Date(),
+        createdAt: Date = Date(),
+        startedAt: Date? = nil,
         finishedAt: Date? = nil,
         status: RunStatus = .created,
         input: String? = nil,
@@ -78,6 +89,7 @@ public struct AgentRun: Codable, Identifiable, Equatable {
         self.id = id
         self.sessionID = sessionID
         self.runtime = runtime
+        self.createdAt = createdAt
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.status = status
@@ -89,9 +101,12 @@ public struct AgentRun: Codable, Identifiable, Equatable {
     // MARK: - State Transitions
 
     /// Transition to running state. Returns false if not in a valid source state.
+    /// Sets `startedAt` to now.
+    @discardableResult
     public mutating func start() -> Bool {
         guard status == .created else { return false }
         status = .running
+        startedAt = Date()
         return true
     }
 
@@ -148,9 +163,51 @@ public struct AgentRun: Codable, Identifiable, Equatable {
         }
     }
 
-    /// Duration of the run, or nil if not yet finished.
+    /// Duration of the run, or nil if not yet started or finished.
     public var duration: TimeInterval? {
-        guard let finishedAt else { return nil }
+        guard let startedAt, let finishedAt else { return nil }
         return finishedAt.timeIntervalSince(startedAt)
+    }
+
+    /// Wall-clock time from creation to finish, or nil if not yet finished.
+    public var totalDuration: TimeInterval? {
+        guard let finishedAt else { return nil }
+        return finishedAt.timeIntervalSince(createdAt)
+    }
+}
+
+// MARK: - Run Metadata (for disk persistence)
+
+/// Codable metadata envelope for persisting an AgentRun to `metadata.json`.
+///
+/// Stored at: `.macrelay/sessions/{runID}/metadata.json`
+public struct RunMetadata: Codable, Equatable {
+    /// Schema version for forward-compatible migrations.
+    public let version: Int
+
+    /// The run this metadata describes.
+    public let run: AgentRun
+
+    /// Which session owns this run.
+    public let sessionID: String
+
+    /// Path to the trace file (relative or absolute).
+    public let tracePath: String?
+
+    /// Arbitrary key-value tags for filtering/search.
+    public let tags: [String: String]
+
+    public init(
+        version: Int = 1,
+        run: AgentRun,
+        sessionID: String,
+        tracePath: String? = nil,
+        tags: [String: String] = [:]
+    ) {
+        self.version = version
+        self.run = run
+        self.sessionID = sessionID
+        self.tracePath = tracePath
+        self.tags = tags
     }
 }

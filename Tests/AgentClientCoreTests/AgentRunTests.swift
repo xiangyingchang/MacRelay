@@ -46,10 +46,13 @@ final class AgentRunTests: XCTestCase {
         XCTAssertEqual(run.status, .created)
         XCTAssertEqual(run.input, input)
         XCTAssertEqual(run.tracePath, tracePath)
+        XCTAssertNotNil(run.createdAt)
+        XCTAssertNil(run.startedAt)
         XCTAssertNil(run.finishedAt)
         XCTAssertNil(run.resultSummary)
         XCTAssertTrue(run.isTerminal == false)
         XCTAssertNil(run.duration)
+        XCTAssertNil(run.totalDuration)
     }
 
     func testAgentRunDefaultInit() {
@@ -64,6 +67,7 @@ final class AgentRunTests: XCTestCase {
         XCTAssertEqual(run.status, .created)
         XCTAssertNil(run.input)
         XCTAssertNil(run.tracePath)
+        XCTAssertNil(run.startedAt)
     }
 
     // MARK: - State Transition Tests
@@ -74,6 +78,7 @@ final class AgentRunTests: XCTestCase {
         // created → running
         XCTAssertTrue(run.start())
         XCTAssertEqual(run.status, .running)
+        XCTAssertNotNil(run.startedAt)
 
         // running → waitingApproval
         XCTAssertTrue(run.waitForApproval())
@@ -207,6 +212,12 @@ final class AgentRunTests: XCTestCase {
         XCTAssertNil(run.duration)
     }
 
+    func testRunDurationNilWhenCreated() {
+        let run = AgentRun(sessionID: "s1", runtime: .codex)
+        XCTAssertNil(run.duration)
+        XCTAssertNil(run.startedAt)
+    }
+
     func testRunDurationCalculatedWhenFinished() {
         var run = AgentRun(sessionID: "s1", runtime: .codex)
         run.start()
@@ -217,13 +228,31 @@ final class AgentRunTests: XCTestCase {
         XCTAssertGreaterThan(run.duration!, 0)
     }
 
+    func testRunTotalDurationIncludesCreatedToFinished() {
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+        var run = AgentRun(
+            sessionID: "s1",
+            runtime: .codex,
+            createdAt: createdAt
+        )
+        // totalDuration is nil before finish
+        XCTAssertNil(run.totalDuration)
+
+        run.start()
+        run.complete()
+
+        // totalDuration should be > duration (includes created→started gap)
+        XCTAssertNotNil(run.totalDuration)
+        XCTAssertNotNil(run.duration)
+    }
+
     // MARK: - Equatable Tests
 
     func testAgentRunEquatable() {
         let date = Date()
-        let run1 = AgentRun(id: "id-1", sessionID: "s1", runtime: .codex, startedAt: date)
-        let run2 = AgentRun(id: "id-1", sessionID: "s1", runtime: .codex, startedAt: date)
-        let run3 = AgentRun(id: "id-2", sessionID: "s1", runtime: .codex, startedAt: date)
+        let run1 = AgentRun(id: "id-1", sessionID: "s1", runtime: .codex, createdAt: date)
+        let run2 = AgentRun(id: "id-1", sessionID: "s1", runtime: .codex, createdAt: date)
+        let run3 = AgentRun(id: "id-2", sessionID: "s1", runtime: .codex, createdAt: date)
 
         XCTAssertEqual(run1, run2)
         XCTAssertNotEqual(run1, run3)
@@ -256,6 +285,47 @@ final class AgentRunTests: XCTestCase {
         XCTAssertEqual(decoded.input, run.input)
         XCTAssertEqual(decoded.tracePath, run.tracePath)
         XCTAssertEqual(decoded.resultSummary, run.resultSummary)
+    }
+
+    // MARK: - RunMetadata Tests
+
+    func testRunMetadataCodable() throws {
+        let run = AgentRun(
+            id: "run-1",
+            sessionID: "session-1",
+            runtime: .codex,
+            status: .completed,
+            input: "Fix the bug",
+            tracePath: "/tmp/trace.log",
+            resultSummary: "Done"
+        )
+
+        let metadata = RunMetadata(
+            run: run,
+            sessionID: "session-1",
+            tracePath: "/tmp/trace.log",
+            tags: ["priority": "high"]
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(metadata)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(RunMetadata.self, from: data)
+
+        XCTAssertEqual(decoded.version, 1)
+        XCTAssertEqual(decoded.run.id, run.id)
+        XCTAssertEqual(decoded.sessionID, "session-1")
+        XCTAssertEqual(decoded.tags["priority"], "high")
+    }
+
+    func testRunMetadataDefaultVersion() {
+        let run = AgentRun(sessionID: "s1", runtime: .codex)
+        let metadata = RunMetadata(run: run, sessionID: "s1")
+        XCTAssertEqual(metadata.version, 1)
+        XCTAssertTrue(metadata.tags.isEmpty)
     }
 }
 
