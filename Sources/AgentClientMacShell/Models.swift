@@ -966,8 +966,18 @@ final class MacShellViewModel: ObservableObject {
     }
 
     /// Refresh timeline items from the relay service's RuntimeEvent log.
+    /// Falls back to the persisted trace file for historical runs.
     private func refreshTimeline() {
-        timelineItems = relayService.timeline(runID: activeRunID)
+        guard !activeRunID.isEmpty else {
+            timelineItems = []
+            return
+        }
+        let baseDir = URL(fileURLWithPath: workspaceCWD)
+            .appendingPathComponent(".macrelay/sessions")
+        timelineItems = relayService.timelineWithFallback(
+            runID: activeRunID,
+            baseDirectory: baseDir
+        )
     }
 
     func startRelayServer(persistConfiguration: Bool = true) {

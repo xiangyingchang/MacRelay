@@ -97,6 +97,56 @@ public final class MacRelayService {
         return TimelineBuilder().build(from: filtered)
     }
 
+    /// Returns the timeline for a historical run by reading its trace file.
+    ///
+    /// Use this when the run is no longer in the in-memory `runtimeEvents`
+    /// buffer (e.g. browsing past sessions). The trace is read from disk
+    /// via `TraceReader` and converted to timeline items via `TimelineBuilder`.
+    ///
+    /// - Parameters:
+    ///   - runID: The run identifier to recover.
+    ///   - baseDirectory: The base directory for trace files. Defaults to
+    ///     `.macrelay/sessions/` in the current directory.
+    /// - Returns: The timeline items for the historical run, or `nil` if
+    ///   the trace file does not exist.
+    public func timelineFromTrace(
+        runID: String,
+        baseDirectory: URL? = nil
+    ) -> [TimelineItem]? {
+        let base = baseDirectory
+            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(".macrelay/sessions")
+        let reader = TraceReader(runID: runID, baseDirectory: base)
+        guard reader.exists else { return nil }
+        guard let result = try? reader.readAll() else { return nil }
+        guard !result.events.isEmpty else { return [] }
+        return TimelineBuilder().build(from: result.events)
+    }
+
+    /// Returns the timeline for a run, preferring in-memory events and
+    /// falling back to the persisted trace file.
+    ///
+    /// This is the recommended entry point for UI consumers that need to
+    /// display timelines for both active and historical runs.
+    ///
+    /// - Parameters:
+    ///   - runID: The run identifier.
+    ///   - baseDirectory: The base directory for trace files (used only
+    ///     when falling back to disk).
+    /// - Returns: The timeline items, or an empty array if no data exists.
+    public func timelineWithFallback(
+        runID: String,
+        baseDirectory: URL? = nil
+    ) -> [TimelineItem] {
+        // Prefer in-memory events (real-time or recently active)
+        let inMemory = runtimeEvents.filter { $0.runID == runID }
+        if !inMemory.isEmpty {
+            return TimelineBuilder().build(from: inMemory)
+        }
+        // Fall back to persisted trace
+        return timelineFromTrace(runID: runID, baseDirectory: baseDirectory) ?? []
+    }
+
     @discardableResult
     public func ingest(_ event: CodexAppServerEvent) throws -> [StoredRelayEvent] {
         let actions = reducer.actions(from: event)
