@@ -22,7 +22,7 @@ public final class APIAgentRuntime: AgentRuntime {
     private var conversationHistory: [ChatMessage] = []
 
     /// Available tools for the agent.
-    private var availableTools: [ToolDefinition] = []
+    private var availableOpenAITools: [OpenAIToolDefinition] = []
 
     /// Current turn ID (generated locally for API mode).
     private var currentTurnID: String?
@@ -270,12 +270,12 @@ public final class APIAgentRuntime: AgentRuntime {
             let stream = try await client.chatCompletion(
                 messages: conversationHistory,
                 model: model,
-                tools: availableTools.isEmpty ? nil : availableTools,
+                tools: availableOpenAITools.isEmpty ? nil : availableOpenAITools,
                 stream: true
             )
 
             var accumulatedContent = ""
-            var pendingToolCalls: [ToolCall] = []
+            var pendingToolCalls: [OpenAIToolCall] = []
 
             for try await chunk in stream {
                 guard let choice = chunk.choices.first else { continue }
@@ -298,11 +298,11 @@ public final class APIAgentRuntime: AgentRuntime {
                         // Accumulate tool call arguments
                         if let existingIndex = pendingToolCalls.firstIndex(where: { $0.id == toolCall.id }) {
                             var existing = pendingToolCalls[existingIndex]
-                            let updatedFunction = FunctionCall(
+                            let updatedFunction = OpenAIFunctionCall(
                                 name: existing.function.name + toolCall.function.name,
                                 arguments: existing.function.arguments + toolCall.function.arguments
                             )
-                            pendingToolCalls[existingIndex] = ToolCall(
+                            pendingToolCalls[existingIndex] = OpenAIToolCall(
                                 id: existing.id,
                                 function: updatedFunction
                             )
@@ -357,7 +357,7 @@ public final class APIAgentRuntime: AgentRuntime {
     // MARK: - Private: Tool Execution
 
     private func executeToolCalls(
-        toolCalls: [ToolCall],
+        toolCalls: [OpenAIToolCall],
         turnID: String,
         approvalPolicy: String?
     ) async {
@@ -443,9 +443,9 @@ public final class APIAgentRuntime: AgentRuntime {
         conversationHistory.append(ChatMessage(
             role: "assistant",
             content: nil,
-            toolCalls: [ToolCall(
+            toolCalls: [OpenAIToolCall(
                 id: toolCallId,
-                function: FunctionCall(
+                function: OpenAIFunctionCall(
                     name: function,
                     arguments: try! String(data: JSONSerialization.data(withJSONObject: arguments), encoding: .utf8) ?? "{}"
                 )
@@ -515,8 +515,8 @@ public final class APIAgentRuntime: AgentRuntime {
 
     private func setupTools() {
         // Define available tools for the agent
-        availableTools = [
-            ToolDefinition(function: FunctionDefinition(
+        availableOpenAITools = [
+            OpenAIToolDefinition(function: OpenAIFunctionDefinition(
                 name: "read_file",
                 description: "Read the contents of a file",
                 parameters: [
@@ -530,7 +530,7 @@ public final class APIAgentRuntime: AgentRuntime {
                     "required": ["path"]
                 ]
             )),
-            ToolDefinition(function: FunctionDefinition(
+            OpenAIToolDefinition(function: OpenAIFunctionDefinition(
                 name: "write_file",
                 description: "Write content to a file",
                 parameters: [
@@ -548,7 +548,7 @@ public final class APIAgentRuntime: AgentRuntime {
                     "required": ["path", "content"]
                 ]
             )),
-            ToolDefinition(function: FunctionDefinition(
+            OpenAIToolDefinition(function: OpenAIFunctionDefinition(
                 name: "list_files",
                 description: "List files in a directory",
                 parameters: [
@@ -562,7 +562,7 @@ public final class APIAgentRuntime: AgentRuntime {
                     "required": ["path"]
                 ]
             )),
-            ToolDefinition(function: FunctionDefinition(
+            OpenAIToolDefinition(function: OpenAIFunctionDefinition(
                 name: "search_text",
                 description: "Search for text in files",
                 parameters: [
@@ -580,7 +580,7 @@ public final class APIAgentRuntime: AgentRuntime {
                     "required": ["query"]
                 ]
             )),
-            ToolDefinition(function: FunctionDefinition(
+            OpenAIToolDefinition(function: OpenAIFunctionDefinition(
                 name: "run_shell_command",
                 description: "Run a shell command",
                 parameters: [
