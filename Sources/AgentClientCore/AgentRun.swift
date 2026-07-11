@@ -12,7 +12,9 @@ import Foundation
 ///                   │
 ///                   ├─► failed
 ///                   │
-///                   └─► cancelled
+///                   ├─► cancelled
+///                   │
+///                   └─► interrupted  (app crash / unexpected shutdown)
 /// ```
 public enum RunStatus: String, Codable, Equatable {
     case created
@@ -21,6 +23,7 @@ public enum RunStatus: String, Codable, Equatable {
     case completed
     case failed
     case cancelled
+    case interrupted
 }
 
 // MARK: - AgentRun
@@ -74,6 +77,24 @@ public struct AgentRun: Codable, Identifiable, Equatable {
     /// Brief summary of the run's outcome.
     public var resultSummary: String?
 
+    /// Error summary for failures, separate from resultSummary.
+    public var errorSummary: String?
+
+    /// Which provider was used (e.g. "openai", "anthropic").
+    public var provider: String?
+
+    /// Which model was used (e.g. "gpt-4o", "claude-sonnet-4-20250514").
+    public var model: String?
+
+    /// Count of files changed during this run.
+    public var filesChangedCount: Int
+
+    /// Count of tool calls made during this run.
+    public var toolCallCount: Int
+
+    /// Count of approvals requested during this run.
+    public var approvalCount: Int
+
     public init(
         id: String = UUID().uuidString,
         sessionID: String,
@@ -84,7 +105,13 @@ public struct AgentRun: Codable, Identifiable, Equatable {
         status: RunStatus = .created,
         input: String? = nil,
         tracePath: String? = nil,
-        resultSummary: String? = nil
+        resultSummary: String? = nil,
+        errorSummary: String? = nil,
+        provider: String? = nil,
+        model: String? = nil,
+        filesChangedCount: Int = 0,
+        toolCallCount: Int = 0,
+        approvalCount: Int = 0
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -96,6 +123,12 @@ public struct AgentRun: Codable, Identifiable, Equatable {
         self.input = input
         self.tracePath = tracePath
         self.resultSummary = resultSummary
+        self.errorSummary = errorSummary
+        self.provider = provider
+        self.model = model
+        self.filesChangedCount = filesChangedCount
+        self.toolCallCount = toolCallCount
+        self.approvalCount = approvalCount
     }
 
     // MARK: - State Transitions
@@ -135,12 +168,16 @@ public struct AgentRun: Codable, Identifiable, Equatable {
     }
 
     /// Mark as failed. Valid from running or waitingApproval.
+    /// Stores the error in `errorSummary` (and also sets `resultSummary` for backward compat).
     @discardableResult
     public mutating func fail(error: String? = nil) -> Bool {
         guard status == .running || status == .waitingApproval else { return false }
         status = .failed
         finishedAt = Date()
-        if let error { resultSummary = error }
+        if let error {
+            errorSummary = error
+            resultSummary = error // backward compat
+        }
         return true
     }
 
@@ -153,10 +190,20 @@ public struct AgentRun: Codable, Identifiable, Equatable {
         return true
     }
 
+    /// Mark as interrupted (app crash / unexpected shutdown).
+    /// Valid from any non-terminal state.
+    @discardableResult
+    public mutating func markInterrupted() -> Bool {
+        guard !isTerminal else { return false }
+        status = .interrupted
+        finishedAt = Date()
+        return true
+    }
+
     /// Whether the run is in a terminal state.
     public var isTerminal: Bool {
         switch status {
-        case .completed, .failed, .cancelled:
+        case .completed, .failed, .cancelled, .interrupted:
             return true
         case .created, .running, .waitingApproval:
             return false

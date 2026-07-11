@@ -198,6 +198,9 @@ struct RunListRow: View {
         case .created:
             return Image(systemName: "circle")
                 .foregroundStyle(.gray)
+        case .interrupted:
+            return Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
         }
     }
 
@@ -215,6 +218,8 @@ struct RunListRow: View {
             return .yellow
         case .created:
             return .gray
+        case .interrupted:
+            return .orange
         }
     }
 
@@ -376,6 +381,7 @@ struct RunDetailHeader: View {
         case .running: return .blue
         case .waitingApproval: return .yellow
         case .created: return .gray
+        case .interrupted: return .orange
         }
     }
 
