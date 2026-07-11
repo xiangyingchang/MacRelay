@@ -7,7 +7,7 @@ import Foundation
 /// This is the canonical way to reconstruct state from a trace file:
 ///
 ///     let reader = TraceReader(fileURL: traceURL)
-///     let result = try reader.readAll()
+///     let result = reader.readAll()
 ///     let snapshot = SnapshotRebuilder.rebuild(from: result.events)
 ///
 /// The reducer is stateless — each event is fed through

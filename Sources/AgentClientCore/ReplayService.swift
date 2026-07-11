@@ -38,7 +38,7 @@ public struct ReplayService {
         guard reader.exists else {
             throw ReplayError.traceNotFound(runID: runID)
         }
-        let result = try reader.readAll()
+        let result = reader.readAll()
         guard !result.events.isEmpty else {
             return SessionSnapshot()
         }
@@ -54,7 +54,7 @@ public struct ReplayService {
         guard reader.exists else {
             throw ReplayError.traceNotFound(runID: runID)
         }
-        let result = try reader.readAll()
+        let result = reader.readAll()
         guard !result.events.isEmpty else {
             return (SessionSnapshot(), [])
         }
