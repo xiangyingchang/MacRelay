@@ -196,6 +196,11 @@ public final class MacRelayService {
             type = nil
         case .modelListResult:
             type = nil
+        case .runStarted, .runWaitingApproval, .runResumed,
+             .runCompleted, .runFailed, .runCancelled:
+            // Run lifecycle events are handled by SessionStateReducer
+            // but don't generate relay events (yet).
+            type = nil
         }
 
         guard let type else { return nil }

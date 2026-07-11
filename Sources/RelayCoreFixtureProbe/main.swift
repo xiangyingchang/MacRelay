@@ -96,6 +96,9 @@ func apply(_ event: CodexAppServerEvent) throws {
             )
         case .rateLimitsUpdated, .exited, .approvalResolved, .modelListResult:
             break
+        case .runStarted, .runWaitingApproval, .runResumed,
+             .runCompleted, .runFailed, .runCancelled:
+            break
         }
     }
 }

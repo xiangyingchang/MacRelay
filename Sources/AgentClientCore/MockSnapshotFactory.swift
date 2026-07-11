@@ -57,6 +57,9 @@ public enum MockSnapshotFactory {
                     break
                 case .exited:
                     break
+                case .runStarted, .runWaitingApproval, .runResumed,
+                     .runCompleted, .runFailed, .runCancelled:
+                    break
                 }
             }
         }
