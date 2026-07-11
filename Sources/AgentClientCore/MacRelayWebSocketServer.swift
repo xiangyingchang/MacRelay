@@ -291,13 +291,13 @@ public final class MacRelayWebSocketServer {
             switch type {
             case RelayCommandType.snapshotGet.rawValue:
                 var envelope = relayService.snapshotEnvelope(correlationID: id)
-                // Inject available sessions so iOS clients see the session list
-                // on initial snapshot.get (not just push broadcasts).
-                if let dispatcher = commandDispatcher {
-                    let sessions = DispatchQueue.main.sync { dispatcher.listSessions() }
-                    if !sessions.isEmpty {
-                        envelope.payload.availableSessions = sessions
-                    }
+                // Inject grouped session lists so iOS clients see both
+                // "会话" (active) and "空间" (workspace) on initial snapshot.get.
+                if let dispatcher = commandDispatcher,
+                   let groups = DispatchQueue.main.sync(execute: { dispatcher.onSnapshotGet?() }),
+                   !groups.availableSessions.isEmpty {
+                    envelope.payload.availableSessions = groups.availableSessions
+                    envelope.payload.workspaceSessions = groups.workspaceSessions
                 }
                 return try encode(envelope)
             case RelayCommandType.replayFrom.rawValue:

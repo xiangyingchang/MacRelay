@@ -348,8 +348,13 @@ final class CodexRuntime: AgentRuntime {
                     }
                     firePendingTurn(threadID: threadID)
                 }
-                // Empty text means "create thread only" — next user message starts the turn
-                pendingDraft = nil
+                // Empty text means "create thread only" — next user message starts the turn.
+                // Only clear pendingDraft for empty-text thread creation; when there's
+                // actual text, keep pendingDraft so the turn/started event augmentation
+                // can inject the user's input into the snapshot for iOS polling.
+                if pendingDraft?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                    pendingDraft = nil
+                }
                 onThreadStarted?(threadID)
             }
         }

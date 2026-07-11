@@ -113,6 +113,10 @@ public struct MacRelayRuntimeCommandDispatcher {
     /// Called when iOS sends sessionRemoveFromWorkspace — delegates to the ShellViewModel.
     public var onRemoveSessionFromWorkspace: ((String) -> Void)?
 
+    /// Called when iOS requests snapshot.get. Returns grouped session lists
+    /// (active vs workspace) so the WebSocket server can include both in the response.
+    public var onSnapshotGet: (() -> (availableSessions: [RelaySessionInfoPayload], workspaceSessions: [RelaySessionInfoPayload])?)?
+
     public init(
         runtime: AgentRuntime,
         defaultCWD: @escaping () -> String,

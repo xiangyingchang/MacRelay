@@ -451,6 +451,7 @@ final class MacShellViewModel: ObservableObject {
         runtime.sessions.removeAll(where: { $0.sessionID == id })
         archivedSessionItems.removeAll(where: { $0.id == id })
         journal.deleteArchivedSession(sessionID: id)
+        broadcastGroupedSnapshot()
     }
 
     /// Save a session to workspace (moves from active list to workspace list).
@@ -459,6 +460,7 @@ final class MacShellViewModel: ObservableObject {
         var saved = savedSessionIDs
         saved.insert(id)
         savedSessionIDs = saved
+        broadcastGroupedSnapshot()
     }
 
     private func migrateLegacySavedSessionsIfNeeded(existingSessionIDs: Set<String>) {
@@ -681,25 +683,7 @@ final class MacShellViewModel: ObservableObject {
         // Sync UI settings to relay service for broadcast to iOS clients
         syncSettingsToRelay()
         // Broadcast updated snapshot so iOS picks up the changes immediately
-        var snapshotEnvelope = relayService.snapshotEnvelope()
-        var allSessions = runtime.sessions
-        for item in archivedSessionItems {
-            if !allSessions.contains(where: { $0.sessionID == item.id }) {
-                allSessions.append(RelaySessionInfoPayload(
-                    sessionID: item.id,
-                    cwd: workspaceCWD,
-                    model: "",
-                    effort: "",
-                    status: "completed",
-                    createdAt: nil,
-                    title: item.title
-                ))
-            }
-        }
-        snapshotEnvelope.payload.availableSessions = allSessions
-        if let data = try? JSONEncoder().encode(snapshotEnvelope) {
-            relayWSServer?.broadcast(data: data)
-        }
+        broadcastGroupedSnapshot()
     }
 
     func refreshCodexDetection() {
@@ -818,9 +802,11 @@ final class MacShellViewModel: ObservableObject {
     /// Sync current view model settings into MacRelayService so snapshot
     /// broadcasts to iOS carry the correct model, effort, planMode, permissionMode.
     func syncSettingsToRelay() {
+        let currentProvider = UserDefaults.standard.string(forKey: "agentProvider") ?? "Codex CLI"
         relayService.updateSnapshotSettings(
             model: selectedModel.isEmpty ? nil : selectedModel,
             effort: selectedEffort.isEmpty ? nil : selectedEffort,
+            provider: currentProvider,
             approvalPolicy: approvalPolicyValue,
             sandboxType: turnSandboxValue,
             cwd: projectCWD
@@ -828,6 +814,51 @@ final class MacShellViewModel: ObservableObject {
         relayService.updateSnapshotAvailableModels(runtime.modelNames.isEmpty ? nil : runtime.modelNames)
         relayService.planMode = planModeEnabled
         relayService.permissionMode = selectedPermissionMode
+        relayService.provider = currentProvider
+    }
+
+    /// Build session lists grouped by workspace for iOS broadcast.
+    /// - activeSessions → "会话": runtime sessions NOT saved to workspace
+    /// - workspaceSessions → "空间": saved runtime sessions + archived sessions
+    private func buildGroupedSessionLists() -> (activeSessions: [RelaySessionInfoPayload], workspaceSessions: [RelaySessionInfoPayload]) {
+        var active: [RelaySessionInfoPayload] = []
+        var workspace: [RelaySessionInfoPayload] = []
+        let saved = savedSessionIDs
+        for s in runtime.sessions {
+            if saved.contains(s.sessionID) {
+                workspace.append(s)
+            } else {
+                active.append(s)
+            }
+        }
+        for item in archivedSessionItems {
+            if !runtime.sessions.contains(where: { $0.sessionID == item.id }) {
+                workspace.append(RelaySessionInfoPayload(
+                    sessionID: item.id,
+                    cwd: workspaceCWD,
+                    model: "",
+                    effort: "",
+                    status: "completed",
+                    createdAt: nil,
+                    title: item.title
+                ))
+            }
+        }
+        return (active, workspace)
+    }
+
+    /// Broadcast the current grouped session lists to all connected iOS clients.
+    private func broadcastGroupedSnapshot() {
+        var snapshotEnvelope = relayService.snapshotEnvelope()
+        let groups = buildGroupedSessionLists()
+        snapshotEnvelope.payload.availableSessions = groups.activeSessions
+        snapshotEnvelope.payload.workspaceSessions = groups.workspaceSessions
+        let totalActive = groups.activeSessions.count
+        let totalWorkspace = groups.workspaceSessions.count
+        if let data = try? JSONEncoder().encode(snapshotEnvelope) {
+            relayWSServer?.broadcast(data: data)
+            print("[Relay] broadcast snapshot active=\(totalActive) ws=\(totalWorkspace)")
+        }
     }
 
     func startRelayServer(persistConfiguration: Bool = true) {
@@ -835,7 +866,7 @@ final class MacShellViewModel: ObservableObject {
         do {
             relayWSServer?.stop()
             try relayHTTPServer.start(host: relayServerHost, port: 0)
-            let dispatcher = MacRelayRuntimeCommandDispatcher(
+            var dispatcher = MacRelayRuntimeCommandDispatcher(
                 runtime: runtime,
                 defaultCWD: { self.projectCWD },
                 onSettingsUpdate: { [weak self] planMode, permissionMode, provider in
@@ -872,6 +903,12 @@ final class MacShellViewModel: ObservableObject {
                     }
                 }
             )
+            // Wire onSnapshotGet so snapshot.get responses include grouped session lists
+            dispatcher.onSnapshotGet = { [weak self] in
+                guard let self else { return nil }
+                let groups = buildGroupedSessionLists()
+                return (availableSessions: groups.activeSessions, workspaceSessions: groups.workspaceSessions)
+            }
             // — no additional code between dispatcher init and wsServer —
             let wsServer = MacRelayWebSocketServer(
                 relayService: relayService,
@@ -888,26 +925,7 @@ final class MacShellViewModel: ObservableObject {
                         // gets the correct model/effort/planMode/permissionMode
                         // on the very first snapshot broadcast.
                         self.syncSettingsToRelay()
-                        var envelope = self.relayService.snapshotEnvelope()
-                        // Include full session list
-                        var allSessions = self.runtime.sessions
-                        for item in self.archivedSessionItems {
-                            if !allSessions.contains(where: { $0.sessionID == item.id }) {
-                                allSessions.append(RelaySessionInfoPayload(
-                                    sessionID: item.id,
-                                    cwd: self.workspaceCWD,
-                                    model: "",
-                                    effort: "",
-                                    status: "completed",
-                                    createdAt: nil,
-                                    title: item.title
-                                ))
-                            }
-                        }
-                        envelope.payload.availableSessions = allSessions
-                        if let data = try? JSONEncoder().encode(envelope) {
-                            self.relayWSServer?.broadcast(data: data)
-                        }
+                        self.broadcastGroupedSnapshot()
                     }
                 }
             }
@@ -1156,39 +1174,7 @@ final class MacShellViewModel: ObservableObject {
             // Sync UI settings to relay service so broadcasts include model/effort/planMode
             syncSettingsToRelay()
             // Active push to all connected WebSocket clients
-            var snapshotEnvelope = relayService.snapshotEnvelope()
-            // Build session list grouped by workspace: active vs workspace sections
-            var activeSessions: [RelaySessionInfoPayload] = []
-            var workspaceSessions: [RelaySessionInfoPayload] = []
-            let saved = savedSessionIDs
-            // Runtime sessions: active (not saved) go to "会话", saved go to "空间"
-            for s in runtime.sessions {
-                if saved.contains(s.sessionID) {
-                    workspaceSessions.append(s)
-                } else {
-                    activeSessions.append(s)
-                }
-            }
-            // Archived sessions: all go to workspace section
-            for item in archivedSessionItems {
-                if !runtime.sessions.contains(where: { $0.sessionID == item.id }) {
-                    workspaceSessions.append(RelaySessionInfoPayload(
-                        sessionID: item.id,
-                        cwd: workspaceCWD,
-                        model: "",
-                        effort: "",
-                        status: "completed",
-                        createdAt: nil,
-                        title: item.title
-                    ))
-                }
-            }
-            snapshotEnvelope.payload.availableSessions = activeSessions
-            snapshotEnvelope.payload.workspaceSessions = workspaceSessions
-            if let data = try? JSONEncoder().encode(snapshotEnvelope) {
-                relayWSServer?.broadcast(data: data)
-                print("[Relay] broadcast snapshot seq=\(relaySnapshot.lastEventSeq) active=\(activeSessions.count) ws=\(workspaceSessions.count)")
-            }
+            broadcastGroupedSnapshot()
         } catch {
             relayStatusText = "relay error: \(error)"
         }

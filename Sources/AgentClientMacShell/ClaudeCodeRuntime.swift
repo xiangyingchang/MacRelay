@@ -480,7 +480,12 @@ final class ClaudeCodeRuntime: AgentRuntime {
                     }
                     firePendingTurn(threadID: threadID)
                 }
-                pendingDraft = nil
+                // Only clear pendingDraft for empty-text thread creation; when the draft
+                // has non-empty text, keep pendingDraft so the turn/started event
+                // augmentation in normalizedEvent() can inject the user's input.
+                if pendingDraft?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                    pendingDraft = nil
+                }
                 onThreadStarted?(threadID)
             }
 
