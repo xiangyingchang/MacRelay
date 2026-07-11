@@ -137,6 +137,10 @@ public struct MacRelayRuntimeCommandDispatcher {
     /// messages so the snapshot includes them.
     public var onGetMessages: (() -> [RelayConversationMessagePayload])?
 
+    /// Called when iOS requests snapshot.get — returns the currently active
+    /// session ID from the Mac VM (not the runtime snapshot, which may lag).
+    public var onGetActiveSessionID: (() -> String?)?
+
     public init(
         runtime: AgentRuntime,
         defaultCWD: @escaping () -> String,
@@ -257,7 +261,9 @@ public struct MacRelayRuntimeCommandDispatcher {
 
         case .sessionSelect:
             let payload = try decoder.decode(RelaySessionSelectCommandPayload.self, from: payloadData)
-            try runtime.selectSession(sessionID: payload.sessionID)
+            // Don't call runtime.selectSession here — onSessionSelect delegates
+            // to MacShellViewModel.selectSession which handles runtime selection,
+            // message cache loading, and UI state updates atomically.
             onSessionSelect?(payload.sessionID)
             return .dispatched("session.select sessionID=\(payload.sessionID)")
 

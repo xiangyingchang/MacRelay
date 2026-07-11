@@ -305,11 +305,23 @@ public final class MacRelayWebSocketServer {
                     envelope.payload.workspaceSessions = groups.workspaceSessions
                 }
                 // Inject conversation messages from the Mac UI so iOS can display them.
+                // Always set messages — including empty array. iOS distinguishes:
+                //   messages=[] → empty session (show blank page)
+                //   messages=nil → old protocol (fall back to turns)
                 let msgs = commandDispatcher.flatMap { dispatcher in
                     DispatchQueue.main.sync(execute: { dispatcher.onGetMessages?() })
                 }
-                if let msgs, !msgs.isEmpty {
+                if let msgs {
                     envelope.payload.session?.messages = msgs
+                }
+                // Align activeSessionID with the Mac VM's activeRunID.
+                // relayService.snapshot.threadID may lag behind after a session
+                // switch because the reducer only updates on thread/started.
+                if let activeID = commandDispatcher.flatMap({ dispatcher in
+                    DispatchQueue.main.sync(execute: { dispatcher.onGetActiveSessionID?() })
+                }) {
+                    envelope.payload.activeSessionID = activeID
+                    envelope.payload.session?.threadID = activeID
                 }
                 return try encode(envelope)
             case RelayCommandType.replayFrom.rawValue:

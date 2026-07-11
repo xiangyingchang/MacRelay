@@ -461,8 +461,9 @@ public final class RelayClientViewModel: ObservableObject {
         var renderedUserMessages: Set<String> = []
 
         // Prefer direct messages from the Mac VM snapshot (includes archived sessions).
-        // Fall back to turns/assistantText from the runtime snapshot.
-        if let msgs = snap.messages, !msgs.isEmpty {
+        // messages=nil → old protocol, fall back to turns.
+        // messages=[] → explicit empty session, show blank page.
+        if let msgs = snap.messages {
             print("[iOS][updateConv] snap.messages count=\(msgs.count) pending=\(pendingLocalUserMessages.count)")
             for msg in msgs {
                 lines.append("[\(msg.role.lowercased())] \(msg.text)")

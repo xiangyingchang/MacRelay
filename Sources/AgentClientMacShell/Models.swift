@@ -905,7 +905,13 @@ final class MacShellViewModel: ObservableObject {
         let groups = buildGroupedSessionLists()
         snapshotEnvelope.payload.availableSessions = groups.activeSessions
         snapshotEnvelope.payload.workspaceSessions = groups.workspaceSessions
-        // Inject current session messages into the snapshot so iOS can display them
+        // Align activeSessionID with the Mac VM's activeRunID.
+        // relayService.snapshot.threadID may lag behind after session.select
+        // because the reducer only updates it on thread/started events.
+        snapshotEnvelope.payload.activeSessionID = activeRunID
+        snapshotEnvelope.payload.session?.threadID = activeRunID
+        // Inject current session messages into the snapshot so iOS can display them.
+        // Always set — including empty array for newly created sessions.
         let recentMessages = messages.map {
             RelayConversationMessagePayload(role: $0.role, text: $0.text)
         }
@@ -985,6 +991,11 @@ final class MacShellViewModel: ObservableObject {
             dispatcher.onGetMessages = { [weak self] in
                 guard let self else { return [] }
                 return messages.map { RelayConversationMessagePayload(role: $0.role, text: $0.text) }
+            }
+            // Wire onGetActiveSessionID so snapshot.get uses the Mac VM's activeRunID
+            // instead of the potentially stale relayService.snapshot.threadID.
+            dispatcher.onGetActiveSessionID = { [weak self] in
+                self?.activeRunID
             }
             // — no additional code between dispatcher init and wsServer —
             let wsServer = MacRelayWebSocketServer(
