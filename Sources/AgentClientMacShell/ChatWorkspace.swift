@@ -471,6 +471,8 @@ struct PlainComposerTextEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onEditingActivity = onEditingActivity
         textView.string = text
+        textView.isEditable = true
+        textView.isSelectable = true
         textView.font = .systemFont(ofSize: 14)
         textView.textColor = NSColor(Theme.fg)
         textView.backgroundColor = .clear
@@ -527,6 +529,31 @@ struct PlainComposerTextEditor: NSViewRepresentable {
 
 final class ComposerNSTextView: NSTextView {
     var onEditingActivity: (() -> Void)?
+
+    // MARK: - First responder
+
+    /// Ensure the text view becomes first responder on click.
+    /// NSViewRepresentable + SwiftUI can intercept mouseDown before it reaches
+    /// NSTextView's default implementation, so we explicitly grab first responder.
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    /// Accept first responder even when embedded in SwiftUI's NSHostingView.
+    override var acceptsFirstResponder: Bool { true }
+
+    /// When the view appears (initial layout), attempt to make it first responder
+    /// so the user can start typing immediately without clicking.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, window.firstResponder == nil || window.firstResponder is NSClipView else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+    }
 
     override func keyDown(with event: NSEvent) {
         onEditingActivity?()
