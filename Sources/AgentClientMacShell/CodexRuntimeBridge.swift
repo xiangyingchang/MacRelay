@@ -576,7 +576,13 @@ final class CodexRuntime: AgentRuntime {
 
     /// If thread exists, send turn directly from stashed draft.
     private func startTurnFromDraft() throws {
-        guard let draft = pendingDraft, let threadID = currentThreadID else { return }
+        guard let draft = pendingDraft, let threadID = currentThreadID else {
+            // currentThreadID is nil — nothing to send; clear pendingDraft
+            // so the next enqueueDraft attempt doesn't get blocked by
+            // isProcessingTurn (pendingDraft != nil).
+            pendingDraft = nil
+            return
+        }
         guard !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             pendingDraft = nil
             statusText = "thread ready"
