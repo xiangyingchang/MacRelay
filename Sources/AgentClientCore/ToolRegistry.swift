@@ -35,6 +35,56 @@ extension ToolResult {
     }
 }
 
+// MARK: - Tool Approval Status
+
+/// The approval status of a tool execution request.
+public enum ToolApprovalStatus: Equatable {
+    /// Policy allowed execution; the tool ran.
+    case allowed
+    /// Policy requires user approval; execution is pending.
+    case pendingApproval(requestID: Int)
+    /// Policy denied execution.
+    case denied
+}
+
+/// The result of a tool execution attempt through the policy-aware registry.
+///
+/// Wraps the underlying `ToolResult` with approval context so callers know
+/// whether the tool was actually executed, is waiting for approval, or was denied.
+public struct ToolApprovalResult: Equatable {
+    /// The approval status.
+    public let status: ToolApprovalStatus
+    /// The underlying tool result (present when status is `.allowed`).
+    public let toolResult: ToolResult?
+    /// The policy evaluation that determined the approval status.
+    public let evaluation: PolicyEvaluationResult
+
+    /// The call ID from the original tool call.
+    public var callID: String { toolResult?.callID ?? "" }
+    /// Whether the tool executed successfully.
+    public var success: Bool { toolResult?.success ?? false }
+    /// Output from the tool (present on successful execution).
+    public var output: String? { toolResult?.output }
+    /// Error message (present on failure or denial).
+    public var error: String? {
+        if let toolError = toolResult?.error { return toolError }
+        switch status {
+        case .denied:
+            return "Tool execution denied: \(evaluation.reason)"
+        case .pendingApproval:
+            return nil
+        case .allowed:
+            return nil
+        }
+    }
+
+    public init(status: ToolApprovalStatus, toolResult: ToolResult?, evaluation: PolicyEvaluationResult) {
+        self.status = status
+        self.toolResult = toolResult
+        self.evaluation = evaluation
+    }
+}
+
 // MARK: - Tool Registry
 
 /// Central registry for tool definitions and executors.
@@ -59,9 +109,18 @@ public final class ToolRegistry {
     private var registrations: [String: Registration] = [:]
     private var executionCounts: [String: Int] = [:]
 
+    /// Optional policy engine for approval evaluation.
+    /// When set, `executeWithApproval()` evaluates the policy before execution.
+    public var policyEngine: ApprovalPolicyEngine?
+
+    /// Auto-incrementing request ID for approval requests.
+    private var nextApprovalRequestID: Int = 1
+
     // MARK: - Initialization
 
-    public init() {}
+    public init(policyEngine: ApprovalPolicyEngine? = nil) {
+        self.policyEngine = policyEngine
+    }
 
     // MARK: - Registration
 
@@ -115,45 +174,136 @@ public final class ToolRegistry {
 
     // MARK: - Execution
 
-    /// Execute a tool call.
+    /// Execute a tool call with policy evaluation.
     ///
-    /// Validates that:
-    /// 1. The tool exists
-    /// 2. Required parameters are present
+    /// This is the primary execution method. It:
+    /// 1. Validates the tool exists and parameters are correct
+    /// 2. Evaluates the approval policy (if a policy engine is set)
+    /// 3. For `.allow`: executes immediately
+    /// 4. For `.ask`: returns a pending-approval result (caller handles UI)
+    /// 5. For `.deny`: returns a denied result without executing
     ///
-    /// Then delegates to the registered executor.
-    public func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
+    /// - Parameters:
+    ///   - call: The tool call to execute.
+    ///   - context: Execution context (workspace, session, run info).
+    /// - Returns: A `ToolApprovalResult` wrapping the execution outcome.
+    public func executeWithApproval(
+        call: ToolCall,
+        context: ToolExecutionContext
+    ) async throws -> ToolApprovalResult {
         // Check tool exists
         guard let registration = registrations[call.name] else {
-            return ToolResult(
+            let errorResult = ToolResult(
                 callID: call.id,
                 success: false,
                 error: ToolExecutionError.toolNotFound(call.name).localizedDescription
+            )
+            let fallbackEval = PolicyEvaluationResult(
+                decision: .deny,
+                rule: "tool_not_found",
+                reason: "Tool not found: \(call.name)"
+            )
+            return ToolApprovalResult(
+                status: .denied,
+                toolResult: errorResult,
+                evaluation: fallbackEval
             )
         }
 
         // Validate required parameters
         if let validationError = validateParameters(call: call, definition: registration.definition) {
-            return ToolResult(
+            let errorResult = ToolResult(
                 callID: call.id,
                 success: false,
                 error: validationError.localizedDescription
             )
-        }
-
-        // Track execution
-        executionCounts[call.name, default: 0] += 1
-
-        // Execute
-        do {
-            return try await registration.executor.execute(call: call, context: context)
-        } catch {
-            return ToolResult(
-                callID: call.id,
-                success: false,
-                error: error.localizedDescription
+            let fallbackEval = PolicyEvaluationResult(
+                decision: .deny,
+                rule: "validation_failed",
+                reason: validationError.localizedDescription
+            )
+            return ToolApprovalResult(
+                status: .denied,
+                toolResult: errorResult,
+                evaluation: fallbackEval
             )
         }
+
+        // Evaluate approval policy
+        let evaluation: PolicyEvaluationResult
+        if let engine = policyEngine {
+            evaluation = engine.evaluate(tool: registration.definition, call: call, context: context)
+        } else {
+            // No policy engine: use tool default
+            evaluation = PolicyEvaluationResult(
+                decision: registration.definition.defaultApprovalPolicy,
+                rule: "tool_default",
+                reason: "No policy engine configured; using tool default"
+            )
+        }
+
+        // Act on the policy decision
+        switch evaluation.decision {
+        case .allow:
+            // Track execution
+            executionCounts[call.name, default: 0] += 1
+
+            // Execute
+            do {
+                let result = try await registration.executor.execute(call: call, context: context)
+                return ToolApprovalResult(
+                    status: .allowed,
+                    toolResult: result,
+                    evaluation: evaluation
+                )
+            } catch {
+                let errorResult = ToolResult(
+                    callID: call.id,
+                    success: false,
+                    error: error.localizedDescription
+                )
+                return ToolApprovalResult(
+                    status: .allowed,
+                    toolResult: errorResult,
+                    evaluation: evaluation
+                )
+            }
+
+        case .ask:
+            // Generate a request ID for the pending approval
+            let requestID = nextApprovalRequestID
+            nextApprovalRequestID += 1
+            return ToolApprovalResult(
+                status: .pendingApproval(requestID: requestID),
+                toolResult: nil,
+                evaluation: evaluation
+            )
+
+        case .deny:
+            return ToolApprovalResult(
+                status: .denied,
+                toolResult: nil,
+                evaluation: evaluation
+            )
+        }
+    }
+
+    /// Execute a tool call (backward-compatible convenience method).
+    ///
+    /// This is a thin wrapper around `executeWithApproval()` that discards
+    /// approval context and returns a plain `ToolResult`. Use
+    /// `executeWithApproval()` when you need policy evaluation details.
+    public func execute(call: ToolCall, context: ToolExecutionContext) async throws -> ToolResult {
+        let approvalResult = try await executeWithApproval(call: call, context: context)
+        if let toolResult = approvalResult.toolResult {
+            return toolResult
+        }
+        // Denied or pending: synthesize a failed ToolResult
+        return ToolResult(
+            callID: call.id,
+            success: false,
+            error: approvalResult.error
+        )
     }
 
     // MARK: - Parameter Validation

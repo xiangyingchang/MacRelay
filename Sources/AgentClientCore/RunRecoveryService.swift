@@ -270,10 +270,10 @@ public struct RunRecoveryService {
         return run
     }
 
-    /// Check if a RunStatus is terminal (completed, failed, or cancelled).
+    /// Check if a RunStatus is terminal (completed, failed, cancelled, or interrupted).
     private func isTerminal(_ status: RunStatus) -> Bool {
         switch status {
-        case .completed, .failed, .cancelled:
+        case .completed, .failed, .cancelled, .interrupted:
             return true
         case .created, .running, .waitingApproval:
             return false
