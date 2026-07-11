@@ -545,13 +545,32 @@ final class ComposerNSTextView: NSTextView {
 
     /// When the view appears (initial layout), attempt to make it first responder
     /// so the user can start typing immediately without clicking.
+    ///
+    /// On app restart, SwiftUI may already have an internal responder set before
+    /// this NSTextView is added to the window. Using `initialFirstResponder` and
+    /// a delayed fallback handles that race — without them the text view silently
+    /// never receives keyboard input.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let window {
-            DispatchQueue.main.async { [weak self] in
-                guard let self, window.firstResponder == nil || window.firstResponder is NSClipView else { return }
-                window.makeFirstResponder(self)
-            }
+        guard let window else { return }
+
+        // Tell AppKit "this is the default responder" gives the most reliable
+        // auto-focus when the window finishes initial layout.
+        window.initialFirstResponder = self
+
+        // Immediate async try — works for most subsequent appearances
+        // (e.g. tab switch, side-bar collapse/expand).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            window.makeFirstResponder(self)
+        }
+
+        // Delayed fallback — needed on first launch and app restart, when
+        // SwiftUI's window-setup race claims first responder before this
+        // NSTextView finishes being added to the window.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, window.firstResponder != self else { return }
+            window.makeFirstResponder(self)
         }
     }
 
