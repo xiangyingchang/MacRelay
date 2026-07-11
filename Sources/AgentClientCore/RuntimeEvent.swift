@@ -476,6 +476,10 @@ public struct RuntimeEvent: Codable, Identifiable {
     /// Schema version. Current: 1. Increment on breaking changes.
     public let version: Int
 
+    /// The current schema version. TraceReader uses this to skip events
+    /// from a future schema version that the current reducer cannot interpret.
+    public static let currentVersion = 1
+
     /// Wall-clock time of the event (UTC).
     public let timestamp: Date
 

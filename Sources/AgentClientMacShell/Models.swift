@@ -12,6 +12,9 @@ final class MacShellViewModel: ObservableObject {
     static func createRuntime(for provider: String) -> AgentRuntime {
         switch provider {
         case "Claude Code": return ClaudeCodeRuntime()
+        case "OpenAI": return APIAgentRuntime(provider: .openAI)
+        case "DeepSeek": return APIAgentRuntime(provider: .deepSeek)
+        case "MIMO": return APIAgentRuntime(provider: .mimo)
         default: return CodexRuntime()
         }
     }
@@ -109,6 +112,9 @@ final class MacShellViewModel: ObservableObject {
         )
     )
 
+    /// Run history store for querying past runs.
+    lazy var runHistoryStore: RunHistoryStore = FileRunHistoryStore()
+
     @Published private(set) var relaySnapshot = RelaySnapshotPayload(
         activeSessionID: nil,
         session: nil,
@@ -135,9 +141,14 @@ final class MacShellViewModel: ObservableObject {
         didSet {
             if !activeRunID.isEmpty && activeRunID != oldValue {
                 setupTraceWriter()
+                refreshTimeline()
             }
         }
     }
+
+    /// Timeline items for the current session, derived from RuntimeEvents.
+    /// UI consumers should read this instead of accessing runtimeEvents directly.
+    @Published private(set) var timelineItems: [TimelineItem] = []
     @Published var activeNav = "Codex"
     @Published var selectedModel: String
     @Published var selectedEffort = "low"
@@ -942,6 +953,23 @@ final class MacShellViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Timeline
+
+    /// Current runtime identifier based on the selected provider.
+    private var currentRuntimeIdentifier: RuntimeIdentifier {
+        let provider = UserDefaults.standard.string(forKey: "agentProvider") ?? "Codex CLI"
+        switch provider {
+        case "Claude Code": return .claudeCode
+        case "Codex CLI": return .codex
+        default: return RuntimeIdentifier.from(provider)
+        }
+    }
+
+    /// Refresh timeline items from the relay service's RuntimeEvent log.
+    private func refreshTimeline() {
+        timelineItems = relayService.timeline(runID: activeRunID)
+    }
+
     func startRelayServer(persistConfiguration: Bool = true) {
         relayServerLastError = nil
         do {
@@ -1280,7 +1308,14 @@ final class MacShellViewModel: ObservableObject {
         }
 
         do {
-            let events = try relayService.ingest(event)
+            // Use ingestWithRuntimeEvent to produce both StoredRelayEvents
+            // and RuntimeEvents (for Trace/Timeline).
+            let (events, newRuntimeEvents) = try relayService.ingestWithRuntimeEvent(
+                event,
+                runtime: currentRuntimeIdentifier,
+                sessionID: activeRunID,
+                runID: activeRunID
+            )
             guard !events.isEmpty else { return }
             relaySnapshot = relayService.snapshotEnvelope().payload
             relayEventCount = relayService.eventCount
@@ -1289,6 +1324,10 @@ final class MacShellViewModel: ObservableObject {
             syncSettingsToRelay()
             // Active push to all connected WebSocket clients
             broadcastGroupedSnapshot()
+            // Update timeline when new RuntimeEvents arrive
+            if !newRuntimeEvents.isEmpty {
+                refreshTimeline()
+            }
         } catch {
             relayStatusText = "relay error: \(error)"
         }

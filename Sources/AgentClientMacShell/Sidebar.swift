@@ -289,6 +289,22 @@ struct SidebarFooter: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            Button(action: {
+                viewModel.activeNav = viewModel.activeNav == "Timeline" ? "Codex" : "Timeline"
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 13))
+                    Text("时间线")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                }
+                .foregroundStyle(viewModel.activeNav == "Timeline" ? Theme.accent : Theme.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+
             Button(action: { showSettingsPopover.toggle() }) {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape")

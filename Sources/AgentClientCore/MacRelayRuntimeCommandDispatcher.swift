@@ -5,6 +5,9 @@ import Foundation
 public enum AgentProvider: String, Codable, CaseIterable {
     case codex = "Codex CLI"
     case claudeCode = "Claude Code"
+    case openAI = "OpenAI"
+    case deepSeek = "DeepSeek"
+    case mimo = "MIMO"
 }
 
 // MARK: - AgentRuntime

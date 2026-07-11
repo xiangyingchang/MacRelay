@@ -85,9 +85,12 @@ struct MainWorkspace: View {
 
     var body: some View {
         Group {
-            if viewModel.activeNav == "Settings" {
+            switch viewModel.activeNav {
+            case "Settings":
                 SettingsWorkspace(viewModel: viewModel)
-            } else {
+            case "Timeline":
+                TimelineView(viewModel: viewModel)
+            default:
                 ChatWorkspace(viewModel: viewModel)
             }
         }

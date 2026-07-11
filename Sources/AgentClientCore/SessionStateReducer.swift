@@ -411,7 +411,8 @@ public struct SessionStateReducer {
         case .error:
             if case let .error(message, code) = event.payload {
                 var errorDict: [String: Any] = ["message": message]
-                if let code { errorDict["code"] = code }
+                // Use "codexErrorInfo" to match the key the reduce() method reads.
+                if let code { errorDict["codexErrorInfo"] = code }
                 return [.error(params: ["error": errorDict])]
             }
             return [.error(params: [:])]

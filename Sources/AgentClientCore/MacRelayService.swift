@@ -78,6 +78,25 @@ public final class MacRelayService {
         snapshot = SessionSnapshot()
     }
 
+    // MARK: - Timeline Query
+
+    /// Returns the timeline for the current session or a specific run.
+    ///
+    /// When `runID` is nil, returns the timeline for all events in the
+    /// current session. When provided, filters to only that run's events.
+    ///
+    /// This is the canonical entry point for UI consumers — they should
+    /// never access `runtimeEvents` directly.
+    public func timeline(runID: String? = nil) -> [TimelineItem] {
+        let filtered: [RuntimeEvent]
+        if let runID {
+            filtered = runtimeEvents.filter { $0.runID == runID }
+        } else {
+            filtered = runtimeEvents
+        }
+        return TimelineBuilder().build(from: filtered)
+    }
+
     @discardableResult
     public func ingest(_ event: CodexAppServerEvent) throws -> [StoredRelayEvent] {
         let actions = reducer.actions(from: event)
@@ -125,8 +144,21 @@ public final class MacRelayService {
 
     /// Ingest a RuntimeEvent directly — runs it through the reducer and records
     /// each resulting action as a StoredRelayEvent. Used for replay and testing.
+    ///
+    /// Note: RuntimeEvents are always stored in `runtimeEvents` for Trace/Timeline,
+    /// even if they don't produce reducer actions (e.g., tool call events are
+    /// "Timeline-only" and don't mutate the snapshot).
     @discardableResult
     public func ingestRuntimeEvent(_ event: RuntimeEvent) throws -> [StoredRelayEvent] {
+        // Always store in runtimeEvents for Trace/Timeline
+        let seqd = event.withSeq(newestSeq)
+        runtimeEvents.append(seqd)
+        if runtimeEvents.count > runtimeEventCapacity {
+            runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
+        }
+        try? traceWriter?.append(seqd)
+
+        // Run through reducer for snapshot mutation
         let actions = reducer.actions(from: event)
         guard !actions.isEmpty else { return [] }
 
@@ -137,13 +169,6 @@ public final class MacRelayService {
                 emitted.append(stored)
             }
         }
-        // Also store in runtimeEvents for Trace
-        let seqd = event.withSeq(newestSeq)
-        runtimeEvents.append(seqd)
-        if runtimeEvents.count > runtimeEventCapacity {
-            runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
-        }
-        try? traceWriter?.append(seqd)
         return emitted
     }
 
