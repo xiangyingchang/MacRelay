@@ -91,6 +91,14 @@ public enum RuntimeEventType: String, Codable, CaseIterable {
     case fileChangeDetected = "file.change.detected"
     case diffUpdated = "diff.updated"
 
+    // Run lifecycle
+    case runStarted = "run.started"
+    case runWaitingApproval = "run.waitingApproval"
+    case runResumed = "run.resumed"
+    case runCompleted = "run.completed"
+    case runFailed = "run.failed"
+    case runCancelled = "run.cancelled"
+
     // Errors & lifecycle
     case error = "error"
     case exited = "exited"
@@ -142,6 +150,12 @@ public enum RuntimeEventPayload: Codable, Equatable {
     case error(message: String, code: String?)
     case exited(code: Int32)
     case settingsUpdated(model: String?, effort: String?)
+    case runStarted(runID: String, input: String?)
+    case runWaitingApproval(runID: String)
+    case runResumed(runID: String)
+    case runCompleted(runID: String, summary: String?)
+    case runFailed(runID: String, error: String?)
+    case runCancelled(runID: String)
     case generic(method: String, params: [String: String]?)
 
     /// Forward compatibility: preserves the raw JSON of any unknown payload type.
@@ -188,6 +202,18 @@ public enum RuntimeEventPayload: Codable, Equatable {
             return a == b
         case let (.settingsUpdated(a1, b1), .settingsUpdated(a2, b2)):
             return a1 == a2 && b1 == b2
+        case let (.runStarted(a1, b1), .runStarted(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.runWaitingApproval(a), .runWaitingApproval(b)):
+            return a == b
+        case let (.runResumed(a), .runResumed(b)):
+            return a == b
+        case let (.runCompleted(a1, b1), .runCompleted(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.runFailed(a1, b1), .runFailed(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.runCancelled(a), .runCancelled(b)):
+            return a == b
         case let (.generic(a1, b1), .generic(a2, b2)):
             return a1 == a2 && b1 == b2
         case let (.unknown(d1, data1), .unknown(d2, data2)):
@@ -219,6 +245,12 @@ public enum RuntimeEventPayload: Codable, Equatable {
         case .error: return "error"
         case .exited: return "exited"
         case .settingsUpdated: return "settingsUpdated"
+        case .runStarted: return "runStarted"
+        case .runWaitingApproval: return "runWaitingApproval"
+        case .runResumed: return "runResumed"
+        case .runCompleted: return "runCompleted"
+        case .runFailed: return "runFailed"
+        case .runCancelled: return "runCancelled"
         case .generic: return "generic"
         case .unknown(let d, _): return d
         }
@@ -278,6 +310,21 @@ public enum RuntimeEventPayload: Codable, Equatable {
         case .settingsUpdated(let model, let effort):
             if let model { try container.encode(model, forKey: DynamicCodingKey("model")) }
             if let effort { try container.encode(effort, forKey: DynamicCodingKey("effort")) }
+        case .runStarted(let runID, let input):
+            try container.encode(runID, forKey: DynamicCodingKey("runID"))
+            if let input { try container.encode(input, forKey: DynamicCodingKey("input")) }
+        case .runWaitingApproval(let runID):
+            try container.encode(runID, forKey: DynamicCodingKey("runID"))
+        case .runResumed(let runID):
+            try container.encode(runID, forKey: DynamicCodingKey("runID"))
+        case .runCompleted(let runID, let summary):
+            try container.encode(runID, forKey: DynamicCodingKey("runID"))
+            if let summary { try container.encode(summary, forKey: DynamicCodingKey("summary")) }
+        case .runFailed(let runID, let error):
+            try container.encode(runID, forKey: DynamicCodingKey("runID"))
+            if let error { try container.encode(error, forKey: DynamicCodingKey("error")) }
+        case .runCancelled(let runID):
+            try container.encode(runID, forKey: DynamicCodingKey("runID"))
         case .generic(let method, let params):
             try container.encode(method, forKey: DynamicCodingKey("method"))
             if let params { try container.encode(params, forKey: DynamicCodingKey("params")) }
@@ -361,6 +408,27 @@ public enum RuntimeEventPayload: Codable, Equatable {
             let model = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("model"))
             let effort = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("effort"))
             self = .settingsUpdated(model: model, effort: effort)
+        case "runStarted":
+            let runID = try container.decode(String.self, forKey: DynamicCodingKey("runID"))
+            let input = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("input"))
+            self = .runStarted(runID: runID, input: input)
+        case "runWaitingApproval":
+            let runID = try container.decode(String.self, forKey: DynamicCodingKey("runID"))
+            self = .runWaitingApproval(runID: runID)
+        case "runResumed":
+            let runID = try container.decode(String.self, forKey: DynamicCodingKey("runID"))
+            self = .runResumed(runID: runID)
+        case "runCompleted":
+            let runID = try container.decode(String.self, forKey: DynamicCodingKey("runID"))
+            let summary = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("summary"))
+            self = .runCompleted(runID: runID, summary: summary)
+        case "runFailed":
+            let runID = try container.decode(String.self, forKey: DynamicCodingKey("runID"))
+            let error = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("error"))
+            self = .runFailed(runID: runID, error: error)
+        case "runCancelled":
+            let runID = try container.decode(String.self, forKey: DynamicCodingKey("runID"))
+            self = .runCancelled(runID: runID)
         case "generic":
             let method = try container.decode(String.self, forKey: DynamicCodingKey("method"))
             let params = try container.decodeIfPresent([String: String].self, forKey: DynamicCodingKey("params"))

@@ -183,6 +183,8 @@ enum FixtureLoader {
 
         case .assistantMessageCompleted,
              .toolCallRequested, .toolCallCompleted, .toolCallFailed,
+             .runStarted, .runWaitingApproval, .runResumed,
+             .runCompleted, .runFailed, .runCancelled,
              .unknown:
             return .raw("")
         }

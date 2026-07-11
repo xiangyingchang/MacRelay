@@ -1,0 +1,204 @@
+{
+  "main": {
+    "id": "b6a807632d2bbb52",
+    "type": "split",
+    "children": [
+      {
+        "id": "6d600a19184f53a9",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "a5a3bb7465d1e922",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/MacRelay-Next-Development-Plan.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "MacRelay-Next-Development-Plan"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "3f73dd3de2cf5ab2",
+    "type": "split",
+    "children": [
+      {
+        "id": "59bc2203453bc348",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f4810622964fbc0a",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "633ebe9d187ef757",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "c46e4f02ec3e8744",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "right": {
+    "id": "e8278a0051c63f09",
+    "type": "split",
+    "children": [
+      {
+        "id": "21ff3c3ab3731ced",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "5aeea5fe34bf60e7",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "docs/MacRelay-Next-Development-Plan.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "MacRelay-Next-Development-Plan 的反向链接列表"
+            }
+          },
+          {
+            "id": "dd7fbbb6d4c035bc",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "docs/MacRelay-Next-Development-Plan.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "MacRelay-Next-Development-Plan 的出链列表"
+            }
+          },
+          {
+            "id": "8004f31df56bfe6a",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "0d9a9ac2ada007eb",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "e7429fb9a8f40b9b",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "docs/MacRelay-Next-Development-Plan.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "MacRelay-Next-Development-Plan 的大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "a5a3bb7465d1e922",
+  "lastOpenFiles": [
+    "Sources/AgentClientCore/MacRelayService.swift.tmp.79942.110a02e6472e",
+    "Sources/AgentClientCore/TraceWriter.swift.tmp.79942.9676d78bf08d",
+    "Sources/AgentClientCore/TraceStore.swift",
+    "Sources/AgentClientCore/RuntimeEvent.swift.tmp.63438.a9f4335f901f",
+    "Sources/AgentClientCore/CodexRuntimeAdapter.swift",
+    "Tests/AgentClientCoreTests/TraceWriterTests.swift",
+    "Tests/AgentClientCoreTests/TraceWriterTests.swift.tmp.63438.6a413c67c08e",
+    "Sources/AgentClientMacShell/Models.swift.tmp.63438.967984a748b7",
+    "Sources/AgentClientCore/MacRelayService.swift.tmp.63438.95e5a3cc3a72",
+    "Sources/AgentClientCore/TraceWriter.swift",
+    "Tests/AgentClientCoreTests/Helpers/FixtureLoader.swift.tmp.79942.f2451399be2f",
+    "docs/MacRelay-Agent-Harness-PRD-v1.2.md",
+    "docs/MacRelay 协议文档.md",
+    "docs/AI 编程 CLI 客户端 iPhone 信息架构.md"
+  ]
+}

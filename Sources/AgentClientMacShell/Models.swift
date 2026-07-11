@@ -131,7 +131,13 @@ final class MacShellViewModel: ObservableObject {
     private let relayHostModeConfigKey = "MacRelayHostMode"
     private lazy var relayHTTPServer = MacRelayHTTPServer(relayService: relayService)
     private var relayWSServer: MacRelayWebSocketServer?
-    @Published var activeRunID = "run-polish"
+    @Published var activeRunID = "run-polish" {
+        didSet {
+            if !activeRunID.isEmpty && activeRunID != oldValue {
+                setupTraceWriter()
+            }
+        }
+    }
     @Published var activeNav = "Codex"
     @Published var selectedModel: String
     @Published var selectedEffort = "low"
@@ -343,6 +349,18 @@ final class MacShellViewModel: ObservableObject {
 
     /// Journal for session transcripts and project memory.
     let journal = SessionJournal()
+
+    /// Configure trace persistence for the current active run.
+    private func setupTraceWriter() {
+        guard !workspaceCWD.isEmpty, !activeRunID.isEmpty else { return }
+        let baseDir = URL(fileURLWithPath: workspaceCWD)
+            .appendingPathComponent(".macrelay/sessions")
+        relayService.traceWriter = TraceWriter(
+            runID: activeRunID,
+            sessionID: runtime.currentThreadID,
+            baseDirectory: baseDir
+        )
+    }
 
     /// User-selected workspace directory. Defaults to home directory.
     /// Used as the CWD when starting app-server / Claude Code.

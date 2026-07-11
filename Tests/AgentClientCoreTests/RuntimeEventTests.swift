@@ -99,6 +99,12 @@ final class RuntimeEventTests: XCTestCase {
             (.error(message: "err", code: nil), "error"),
             (.exited(code: 0), "exited"),
             (.settingsUpdated(model: "m", effort: "e"), "settingsUpdated"),
+            (.runStarted(runID: "r1", input: "fix bug"), "runStarted"),
+            (.runWaitingApproval(runID: "r1"), "runWaitingApproval"),
+            (.runResumed(runID: "r1"), "runResumed"),
+            (.runCompleted(runID: "r1", summary: "done"), "runCompleted"),
+            (.runFailed(runID: "r1", error: "timeout"), "runFailed"),
+            (.runCancelled(runID: "r1"), "runCancelled"),
             (.generic(method: "x", params: nil), "generic"),
         ]
 
@@ -472,5 +478,114 @@ final class RuntimeEventTests: XCTestCase {
             payload: .sessionStarted(sessionID: "s1", cwd: nil)
         )
         XCTAssertEqual(event.version, 1)
+    }
+
+    // MARK: - Run Lifecycle Events
+
+    func test_runStarted_entersEventStore() throws {
+        let service = MacRelayService()
+        let event = RuntimeEvent(
+            runtime: .claudeCode, type: .runStarted,
+            payload: .runStarted(runID: "run-1", input: "fix bug")
+        )
+        let stored = try service.ingestRuntimeEvent(event)
+        XCTAssertEqual(stored.count, 1)
+        XCTAssertEqual(stored[0].type, RelayEventType.runStarted.rawValue)
+        XCTAssertEqual(service.runtimeEvents.count, 1)
+        XCTAssertEqual(service.runtimeEvents[0].type, .runStarted)
+    }
+
+    func test_runCompleted_entersEventStore() throws {
+        let service = MacRelayService()
+        // Start a run first so the snapshot has an activeRun
+        let startEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runStarted,
+            payload: .runStarted(runID: "run-1", input: "fix bug")
+        )
+        try service.ingestRuntimeEvent(startEvent)
+
+        let completeEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runCompleted,
+            payload: .runCompleted(runID: "run-1", summary: "done")
+        )
+        let stored = try service.ingestRuntimeEvent(completeEvent)
+        XCTAssertFalse(stored.isEmpty)
+        XCTAssertEqual(stored.last?.type, RelayEventType.runCompleted.rawValue)
+    }
+
+    func test_runFailed_entersEventStore() throws {
+        let service = MacRelayService()
+        let startEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runStarted,
+            payload: .runStarted(runID: "run-1", input: nil)
+        )
+        try service.ingestRuntimeEvent(startEvent)
+
+        let failEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runFailed,
+            payload: .runFailed(runID: "run-1", error: "timeout")
+        )
+        let stored = try service.ingestRuntimeEvent(failEvent)
+        XCTAssertFalse(stored.isEmpty)
+        XCTAssertEqual(stored.last?.type, RelayEventType.runFailed.rawValue)
+    }
+
+    func test_runCancelled_entersEventStore() throws {
+        let service = MacRelayService()
+        let startEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runStarted,
+            payload: .runStarted(runID: "run-1", input: nil)
+        )
+        try service.ingestRuntimeEvent(startEvent)
+
+        let cancelEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runCancelled,
+            payload: .runCancelled(runID: "run-1")
+        )
+        let stored = try service.ingestRuntimeEvent(cancelEvent)
+        XCTAssertFalse(stored.isEmpty)
+        XCTAssertEqual(stored.last?.type, RelayEventType.runCancelled.rawValue)
+    }
+
+    func test_runWaitingApproval_entersEventStore() throws {
+        let service = MacRelayService()
+        let startEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runStarted,
+            payload: .runStarted(runID: "run-1", input: nil)
+        )
+        try service.ingestRuntimeEvent(startEvent)
+
+        let waitEvent = RuntimeEvent(
+            runtime: .claudeCode, type: .runWaitingApproval,
+            payload: .runWaitingApproval(runID: "run-1")
+        )
+        let stored = try service.ingestRuntimeEvent(waitEvent)
+        XCTAssertFalse(stored.isEmpty)
+        XCTAssertEqual(stored.last?.type, RelayEventType.runWaitingApproval.rawValue)
+    }
+
+    func test_runLifecycle_fullCycle_appearsInReplay() throws {
+        let service = MacRelayService()
+
+        // Start
+        try service.ingestRuntimeEvent(RuntimeEvent(
+            runtime: .claudeCode, type: .runStarted,
+            payload: .runStarted(runID: "run-1", input: "fix bug")
+        ))
+        // Complete
+        try service.ingestRuntimeEvent(RuntimeEvent(
+            runtime: .claudeCode, type: .runCompleted,
+            payload: .runCompleted(runID: "run-1", summary: "fixed")
+        ))
+
+        // Replay should contain both events
+        let replay = service.replay(afterSeq: 0)
+        if case let .events(events) = replay {
+            let types = events.map { $0.type }
+            XCTAssertTrue(types.contains(RelayEventType.runStarted.rawValue))
+            XCTAssertTrue(types.contains(RelayEventType.runCompleted.rawValue))
+        } else {
+            XCTFail("Expected events in replay")
+        }
     }
 }

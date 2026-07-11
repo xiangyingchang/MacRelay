@@ -17,7 +17,7 @@ public final class MacRelayService {
     private let runtimeEventCapacity = 1000
 
     /// Optional trace writer — when set, every RuntimeEvent is persisted to disk.
-    public var traceWriter: TraceWriterProtocol?
+    public var traceWriter: TraceStore?
 
     /// UI settings injected by the view model for snapshot broadcasts.
     /// These are not part of the agent runtime state but need to sync to iOS.
@@ -116,11 +116,35 @@ public final class MacRelayService {
                 runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
             }
             // Persist to trace file (non-blocking, fire-and-forget)
-            try? traceWriter?.write(evt)
+            try? traceWriter?.append(evt)
             result.append(evt)
         }
 
         return (relayEvents, result)
+    }
+
+    /// Ingest a RuntimeEvent directly — runs it through the reducer and records
+    /// each resulting action as a StoredRelayEvent. Used for replay and testing.
+    @discardableResult
+    public func ingestRuntimeEvent(_ event: RuntimeEvent) throws -> [StoredRelayEvent] {
+        let actions = reducer.actions(from: event)
+        guard !actions.isEmpty else { return [] }
+
+        var emitted: [StoredRelayEvent] = []
+        for action in actions {
+            reducer.reduce(&snapshot, action: action)
+            if let stored = try record(action: action) {
+                emitted.append(stored)
+            }
+        }
+        // Also store in runtimeEvents for Trace
+        let seqd = event.withSeq(newestSeq)
+        runtimeEvents.append(seqd)
+        if runtimeEvents.count > runtimeEventCapacity {
+            runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
+        }
+        try? traceWriter?.append(seqd)
+        return emitted
     }
 
     public func snapshotEnvelope(correlationID: String? = nil) -> RelayEnvelope<RelaySnapshotPayload> {
@@ -204,11 +228,18 @@ public final class MacRelayService {
             type = nil
         case .modelListResult:
             type = nil
-        case .runStarted, .runWaitingApproval, .runResumed,
-             .runCompleted, .runFailed, .runCancelled:
-            // Run lifecycle events are handled by SessionStateReducer
-            // but don't generate relay events (yet).
-            type = nil
+        case .runStarted:
+            type = .runStarted
+        case .runWaitingApproval:
+            type = .runWaitingApproval
+        case .runResumed:
+            type = .runResumed
+        case .runCompleted:
+            type = .runCompleted
+        case .runFailed:
+            type = .runFailed
+        case .runCancelled:
+            type = .runCancelled
         }
 
         guard let type else { return nil }

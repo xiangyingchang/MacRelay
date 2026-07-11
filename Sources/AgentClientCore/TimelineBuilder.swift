@@ -91,7 +91,10 @@ public struct TimelineBuilder {
 
         // ── Ignored events ─────────────────────────────────────────────
         case .sessionStarted, .sessionStopped, .sessionSelected,
-             .diffUpdated, .exited, .settingsUpdated, .unknown:
+             .diffUpdated, .exited, .settingsUpdated,
+             .runStarted, .runWaitingApproval, .runResumed,
+             .runCompleted, .runFailed, .runCancelled,
+             .unknown:
             return []
         }
     }

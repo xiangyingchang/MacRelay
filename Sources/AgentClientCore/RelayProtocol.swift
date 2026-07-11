@@ -70,6 +70,14 @@ public enum RelayEventType: String, Codable, CaseIterable {
     case approvalRequested = "approval.requested"
     case approvalResolved = "approval.resolved"
     case error = "error"
+
+    // Run lifecycle
+    case runStarted = "run.started"
+    case runWaitingApproval = "run.waitingApproval"
+    case runResumed = "run.resumed"
+    case runCompleted = "run.completed"
+    case runFailed = "run.failed"
+    case runCancelled = "run.cancelled"
 }
 
 public struct ConnectionSnapshotPayload: Codable {

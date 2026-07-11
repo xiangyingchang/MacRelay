@@ -431,6 +431,42 @@ public struct SessionStateReducer {
             }
             return []
 
+        case .runStarted:
+            if case let .runStarted(runID, input) = event.payload {
+                return [.runStarted(runID: runID, input: input, runtime: event.runtime)]
+            }
+            return []
+
+        case .runWaitingApproval:
+            if case let .runWaitingApproval(runID) = event.payload {
+                return [.runWaitingApproval(runID: runID)]
+            }
+            return []
+
+        case .runResumed:
+            if case let .runResumed(runID) = event.payload {
+                return [.runResumed(runID: runID)]
+            }
+            return []
+
+        case .runCompleted:
+            if case let .runCompleted(runID, summary) = event.payload {
+                return [.runCompleted(runID: runID, summary: summary)]
+            }
+            return []
+
+        case .runFailed:
+            if case let .runFailed(runID, error) = event.payload {
+                return [.runFailed(runID: runID, error: error)]
+            }
+            return []
+
+        case .runCancelled:
+            if case let .runCancelled(runID) = event.payload {
+                return [.runCancelled(runID: runID)]
+            }
+            return []
+
         case .unknown:
             return [] // Unknown events have no snapshot impact
         }
