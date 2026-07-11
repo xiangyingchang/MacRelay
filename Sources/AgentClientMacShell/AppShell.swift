@@ -90,6 +90,8 @@ struct MainWorkspace: View {
                 SettingsWorkspace(viewModel: viewModel)
             case "Timeline":
                 TimelineView(viewModel: viewModel)
+            case "Runs":
+                RunExplorerView(viewModel: viewModel)
             default:
                 ChatWorkspace(viewModel: viewModel)
             }

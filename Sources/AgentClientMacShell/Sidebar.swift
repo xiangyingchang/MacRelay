@@ -305,6 +305,22 @@ struct SidebarFooter: View {
             }
             .buttonStyle(.plain)
 
+            Button(action: {
+                viewModel.activeNav = viewModel.activeNav == "Runs" ? "Codex" : "Runs"
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 13))
+                    Text("运行")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                }
+                .foregroundStyle(viewModel.activeNav == "Runs" ? Theme.accent : Theme.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+
             Button(action: { showSettingsPopover.toggle() }) {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape")

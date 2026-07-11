@@ -115,6 +115,45 @@ final class MacShellViewModel: ObservableObject {
     /// Run history store for querying past runs.
     lazy var runHistoryStore: RunHistoryStore = FileRunHistoryStore()
 
+    // MARK: - Run Explorer State
+
+    /// Historical runs loaded from the repository.
+    @Published var runHistory: [AgentRun] = []
+
+    /// Currently selected run in the Run Explorer.
+    @Published var selectedRunForExplorer: AgentRun?
+
+    /// Filter state for the Run Explorer.
+    @Published var runExplorerFilter = RunExplorerFilter()
+
+    /// Whether the run history is currently loading.
+    @Published var isRunHistoryLoading = false
+
+    /// Error message from loading run history, if any.
+    @Published var runHistoryError: String?
+
+    /// Load run history from the repository.
+    func loadRunHistory() async {
+        await MainActor.run { isRunHistoryLoading = true; runHistoryError = nil }
+        do {
+            let runs = try runHistoryStore.listAllRuns().map { $0.run }
+            await MainActor.run {
+                runHistory = runs
+                isRunHistoryLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                runHistoryError = error.localizedDescription
+                isRunHistoryLoading = false
+            }
+        }
+    }
+
+    /// Select a run in the Run Explorer and load its detail.
+    func selectRunForExplorer(_ run: AgentRun) {
+        selectedRunForExplorer = run
+    }
+
     @Published private(set) var relaySnapshot = RelaySnapshotPayload(
         activeSessionID: nil,
         session: nil,
