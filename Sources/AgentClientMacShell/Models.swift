@@ -818,14 +818,14 @@ final class MacShellViewModel: ObservableObject {
     /// Sync current view model settings into MacRelayService so snapshot
     /// broadcasts to iOS carry the correct model, effort, planMode, permissionMode.
     func syncSettingsToRelay() {
-        relayService.snapshot.settings = SessionSettingsSnapshot(
+        relayService.updateSnapshotSettings(
             model: selectedModel.isEmpty ? nil : selectedModel,
             effort: selectedEffort.isEmpty ? nil : selectedEffort,
             approvalPolicy: approvalPolicyValue,
             sandboxType: turnSandboxValue,
             cwd: projectCWD
         )
-        relayService.snapshot.availableModels = runtime.modelNames.isEmpty ? nil : runtime.modelNames
+        relayService.updateSnapshotAvailableModels(runtime.modelNames.isEmpty ? nil : runtime.modelNames)
         relayService.planMode = planModeEnabled
         relayService.permissionMode = selectedPermissionMode
     }

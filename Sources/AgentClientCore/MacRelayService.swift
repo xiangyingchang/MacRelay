@@ -16,6 +16,28 @@ public final class MacRelayService {
     public var model: String?
     public var effort: String?
 
+    /// Update snapshot settings from the Mac view model so iOS receives current config.
+    public func updateSnapshotSettings(
+        model: String?,
+        effort: String?,
+        approvalPolicy: String?,
+        sandboxType: String?,
+        cwd: String?
+    ) {
+        snapshot.settings = SessionSettingsSnapshot(
+            model: model,
+            effort: effort,
+            approvalPolicy: approvalPolicy,
+            sandboxType: sandboxType,
+            cwd: cwd
+        )
+    }
+
+    /// Update the available models list on the snapshot.
+    public func updateSnapshotAvailableModels(_ models: [String]?) {
+        snapshot.availableModels = models
+    }
+
     private let reducer = SessionStateReducer()
     private let sequence: RelaySequence
     private let store: EventStore
