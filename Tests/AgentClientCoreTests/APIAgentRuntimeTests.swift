@@ -183,9 +183,9 @@ final class APIAgentRuntimeTests: XCTestCase {
         XCTAssertEqual(decoded.content, "Hello")
     }
 
-    /// Test ToolDefinition encoding.
+    /// Test OpenAIToolDefinition encoding.
     func testToolDefinitionEncoding() throws {
-        let tool = ToolDefinition(function: FunctionDefinition(
+        let tool = OpenAIToolDefinition(function: OpenAIFunctionDefinition(
             name: "read_file",
             description: "Read a file",
             parameters: [
@@ -197,7 +197,7 @@ final class APIAgentRuntimeTests: XCTestCase {
 
         let encoder = JSONEncoder()
         let data = try encoder.encode(tool)
-        let decoded = try JSONDecoder().decode(ToolDefinition.self, from: data)
+        let decoded = try JSONDecoder().decode(OpenAIToolDefinition.self, from: data)
 
         XCTAssertEqual(decoded.function.name, "read_file")
         XCTAssertEqual(decoded.function.description, "Read a file")

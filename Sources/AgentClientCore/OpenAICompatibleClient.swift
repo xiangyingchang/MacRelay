@@ -30,7 +30,7 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
     public func chatCompletion(
         messages: [ChatMessage],
         model: String?,
-        tools: [ToolDefinition]?,
+        tools: [OpenAIToolDefinition]?,
         stream: Bool = true
     ) async throws -> AsyncThrowingStream<ChatCompletionChunk, Error> {
         let request = try buildRequest(
@@ -130,7 +130,7 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
     private func buildRequest(
         messages: [ChatMessage],
         model: String,
-        tools: [ToolDefinition]?,
+        tools: [OpenAIToolDefinition]?,
         stream: Bool
     ) throws -> URLRequest {
         guard let url = URL(string: "\(provider.baseURL)/chat/completions") else {
@@ -163,7 +163,7 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
 public struct ChatMessage: Codable {
     public let role: String
     public let content: String?
-    public let toolCalls: [ToolCall]?
+    public let toolCalls: [OpenAIToolCall]?
     public let toolCallId: String?
 
     enum CodingKeys: String, CodingKey {
@@ -172,7 +172,7 @@ public struct ChatMessage: Codable {
         case toolCallId = "tool_call_id"
     }
 
-    public init(role: String, content: String?, toolCalls: [ToolCall]? = nil, toolCallId: String? = nil) {
+    public init(role: String, content: String?, toolCalls: [OpenAIToolCall]? = nil, toolCallId: String? = nil) {
         self.role = role
         self.content = content
         self.toolCalls = toolCalls
@@ -188,14 +188,14 @@ public struct ChatMessage: Codable {
     }
 }
 
-// MARK: - Tool Definition
+// MARK: - OpenAI Tool Definition (wire format)
 
-/// Definition of a tool that can be called by the model.
-public struct ToolDefinition: Codable {
+/// Definition of a tool that can be called by the model (OpenAI wire format).
+public struct OpenAIToolDefinition: Codable {
     public let type: String
-    public let function: FunctionDefinition
+    public let function: OpenAIFunctionDefinition
 
-    public init(function: FunctionDefinition) {
+    public init(function: OpenAIFunctionDefinition) {
         self.type = "function"
         self.function = function
     }
@@ -208,8 +208,8 @@ public struct ToolDefinition: Codable {
     }
 }
 
-/// Definition of a function tool.
-public struct FunctionDefinition: Codable {
+/// Definition of a function tool (OpenAI wire format).
+public struct OpenAIFunctionDefinition: Codable {
     public let name: String
     public let description: String
     public let parameters: [String: Any]
@@ -248,15 +248,15 @@ public struct FunctionDefinition: Codable {
     }
 }
 
-// MARK: - Tool Call
+// MARK: - OpenAI Tool Call (wire format)
 
-/// A tool call made by the model.
-public struct ToolCall: Codable {
+/// A tool call made by the model (OpenAI wire format).
+public struct OpenAIToolCall: Codable {
     public let id: String
     public let type: String
-    public let function: FunctionCall
+    public let function: OpenAIFunctionCall
 
-    public init(id: String, type: String = "function", function: FunctionCall) {
+    public init(id: String, type: String = "function", function: OpenAIFunctionCall) {
         self.id = id
         self.type = type
         self.function = function
@@ -271,8 +271,8 @@ public struct ToolCall: Codable {
     }
 }
 
-/// A function call within a tool call.
-public struct FunctionCall: Codable {
+/// A function call within a tool call (OpenAI wire format).
+public struct OpenAIFunctionCall: Codable {
     public let name: String
     public let arguments: String
 
@@ -313,7 +313,7 @@ public struct ChatCompletionResponse: Codable {
     public struct AssistantMessage: Codable {
         public let role: String
         public let content: String?
-        public let toolCalls: [ToolCall]?
+        public let toolCalls: [OpenAIToolCall]?
 
         enum CodingKeys: String, CodingKey {
             case role, content
@@ -354,7 +354,7 @@ public struct ChatCompletionChunk: Codable {
     public struct ChoiceDelta: Codable {
         public let role: String?
         public let content: String?
-        public let toolCalls: [ToolCall]?
+        public let toolCalls: [OpenAIToolCall]?
 
         enum CodingKeys: String, CodingKey {
             case role, content
@@ -400,14 +400,14 @@ public enum APIError: Error, LocalizedError {
 // MARK: - AnyCodable Helper
 
 /// Helper for encoding/decoding Any values.
-struct AnyCodable: Codable {
-    let value: Any
+public struct AnyCodable: Codable {
+    public let value: Any
 
-    init(_ value: Any) {
+    public init(_ value: Any) {
         self.value = value
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let int = try? container.decode(Int.self) {
             value = int
@@ -426,7 +426,7 @@ struct AnyCodable: Codable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         if let int = value as? Int {
             try container.encode(int)
