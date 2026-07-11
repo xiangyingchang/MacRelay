@@ -9,6 +9,13 @@ public enum MacRelayCommandResult {
 public final class MacRelayService {
     public private(set) var snapshot = SessionSnapshot()
 
+    /// Unified RuntimeEvent log — the canonical event stream for Trace/Timeline.
+    /// Unlike StoredRelayEvent (which embeds full snapshots), RuntimeEvent
+    /// carries only the event data. Snapshot can be reconstructed by replaying
+    /// RuntimeEvents through the reducer.
+    public private(set) var runtimeEvents: [RuntimeEvent] = []
+    private let runtimeEventCapacity = 1000
+
     /// UI settings injected by the view model for snapshot broadcasts.
     /// These are not part of the agent runtime state but need to sync to iOS.
     public var planMode: Bool?
@@ -81,6 +88,32 @@ public final class MacRelayService {
             }
         }
         return emitted
+    }
+
+    /// Ingest a raw event and also produce a unified RuntimeEvent.
+    /// The RuntimeEvent is stored in `runtimeEvents` for Trace/Timeline use.
+    /// Returns (storedRelayEvents, runtimeEvent).
+    public func ingestWithRuntimeEvent(
+        _ event: CodexAppServerEvent,
+        runtime: RuntimeIdentifier,
+        sessionID: String? = nil,
+        runID: String? = nil
+    ) throws -> ([StoredRelayEvent], RuntimeEvent?) {
+        let relayEvents = try ingest(event)
+
+        if let runtimeEvent = reducer.runtimeEvent(
+            from: event, runtime: runtime, sessionID: sessionID, runID: runID
+        ) {
+            var evt = runtimeEvent
+            evt.seq = newestSeq
+            runtimeEvents.append(evt)
+            if runtimeEvents.count > runtimeEventCapacity {
+                runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
+            }
+            return (relayEvents, evt)
+        }
+
+        return (relayEvents, nil)
     }
 
     public func snapshotEnvelope(correlationID: String? = nil) -> RelayEnvelope<RelaySnapshotPayload> {

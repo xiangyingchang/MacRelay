@@ -315,4 +315,156 @@ public struct SessionStateReducer {
             return []
         }
     }
+
+    // MARK: - RuntimeEvent Conversion
+
+    /// Convert a CodexAppServerEvent into a unified RuntimeEvent.
+    /// This is the adapter layer: each runtime's raw protocol is mapped
+    /// to the shared RuntimeEvent schema.
+    public func runtimeEvent(
+        from event: CodexAppServerEvent,
+        runtime: RuntimeIdentifier,
+        sessionID: String? = nil,
+        runID: String? = nil
+    ) -> RuntimeEvent? {
+        switch event {
+        case let .serverRequest(id, method, params):
+            if let approval = CodexApprovalRequest(requestID: id, method: method, params: params) {
+                let commandStr: String?
+                if let cmd = approval.command {
+                    commandStr = "\(cmd)"
+                } else {
+                    commandStr = nil
+                }
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .approvalRequested,
+                    payload: .approvalRequested(
+                        requestID: approval.requestID,
+                        tool: approval.method,
+                        command: commandStr,
+                        riskLevel: nil
+                    )
+                )
+            }
+            return nil
+
+        case let .notification(method, params):
+            guard let params else { return nil }
+
+            // File change detection
+            if let fileChange = CodexFileChangeUpdated(method: method, params: params) {
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .fileChangeDetected,
+                    payload: .fileChange(
+                        path: fileChange.path ?? fileChange.itemID ?? "unknown",
+                        changeKind: fileChange.changeKind ?? "changed"
+                    )
+                )
+            }
+
+            // Diff update
+            if let diff = CodexTurnDiffUpdated(method: method, params: params) {
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .diffUpdated,
+                    payload: .diffUpdated(files: diff.changedFiles)
+                )
+            }
+
+            switch method {
+            case "thread/started":
+                let threadID = params["id"] as? String
+                    ?? params["thread_id"] as? String
+                    ?? (params["thread"] as? [String: Any])?["id"] as? String
+                return RuntimeEvent(
+                    sessionID: threadID ?? sessionID, runID: runID, runtime: runtime,
+                    type: .sessionStarted,
+                    payload: .sessionStarted(sessionID: threadID ?? "", cwd: params["cwd"] as? String)
+                )
+
+            case "turn/started":
+                let turnID = params["turn_id"] as? String
+                    ?? params["id"] as? String
+                    ?? (params["turn"] as? [String: Any])?["id"] as? String
+                let input = params["input"] as? String
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .turnStarted,
+                    payload: .turnStarted(turnID: turnID, input: input)
+                )
+
+            case "item/agentMessage/delta":
+                let text = params["delta"] as? String ?? ""
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .assistantDelta,
+                    payload: .assistantDelta(text: text)
+                )
+
+            case "turn/completed":
+                let turnID = params["turn_id"] as? String
+                    ?? params["id"] as? String
+                    ?? (params["turn"] as? [String: Any])?["id"] as? String
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .turnCompleted,
+                    payload: .turnCompleted(turnID: turnID)
+                )
+
+            case "error":
+                let message = (params["error"] as? [String: Any])?["message"] as? String
+                    ?? params["error"] as? String
+                    ?? "Unknown error"
+                let code = (params["error"] as? [String: Any])?["code"] as? String
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .error,
+                    payload: .error(message: message, code: code)
+                )
+
+            case "turn/error":
+                let message = params["error"] as? String ?? "Turn failed"
+                let turnID = params["turn_id"] as? String
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .turnError,
+                    payload: .turnError(turnID: turnID, message: message)
+                )
+
+            case "thread/settings/updated":
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .settingsUpdated,
+                    payload: .settingsUpdated(
+                        model: params["model"] as? String,
+                        effort: params["effort"] as? String
+                    )
+                )
+
+            default:
+                // Preserve unknown notifications as generic events
+                // so they survive the round-trip without data loss.
+                let stringParams = params.compactMapValues { $0 as? String }
+                return RuntimeEvent(
+                    sessionID: sessionID, runID: runID, runtime: runtime,
+                    type: .settingsUpdated, // closest neutral type
+                    payload: .generic(method: method, params: stringParams)
+                )
+            }
+
+        #if os(macOS)
+        case let .exit(code, _):
+            return RuntimeEvent(
+                sessionID: sessionID, runID: runID, runtime: runtime,
+                type: .exited,
+                payload: .exited(code: code)
+            )
+        #endif
+
+        case .response, .stderr, .raw:
+            return nil
+        }
+    }
 }
