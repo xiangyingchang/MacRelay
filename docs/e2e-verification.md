@@ -1,6 +1,6 @@
 # MacRelay 端到端手动验证指南
 
-最后更新：2026-06-27
+最后更新：2026-07-11
 
 ## 前置条件
 
@@ -131,6 +131,10 @@ open .build/AgentClientMacShell.app
 - [ ] Host mode Localhost/LAN 切换正确
 - [ ] 真机 HTTP 不因 ATS 被拦截
 - [ ] live Codex probes 不自动运行
+- [ ] 连续创建两个 Session 不转圈超时（回归：竞态修复）
+- [ ] 新 Session 是空白对话，不显示旧消息（回归：空 session 修复）
+- [ ] QR 扫码自动对焦 + 放大（回归：扫码优化）
+- [ ] `swift test` 全部通过（78 tests）
 
 ## 常见问题
 
