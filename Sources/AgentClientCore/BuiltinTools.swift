@@ -191,7 +191,10 @@ struct ListFilesExecutor: ToolExecutor {
             return ToolResult(callID: call.id, success: false, error: "Missing parameter: path")
         }
 
-        let resolvedPath = resolvePath(path, relativeTo: context.workspacePath)
+        guard let resolvedPath = resolvePath(path, relativeTo: context.workspacePath) else {
+            return ToolResult(callID: call.id, success: false, error: "Path outside workspace: \(path)")
+        }
+
         let fileManager = FileManager.default
 
         guard let contents = try? fileManager.contentsOfDirectory(atPath: resolvedPath) else {
@@ -212,7 +215,9 @@ struct ReadFileExecutor: ToolExecutor {
             return ToolResult(callID: call.id, success: false, error: "Missing parameter: path")
         }
 
-        let resolvedPath = resolvePath(path, relativeTo: context.workspacePath)
+        guard let resolvedPath = resolvePath(path, relativeTo: context.workspacePath) else {
+            return ToolResult(callID: call.id, success: false, error: "Path outside workspace: \(path)")
+        }
 
         guard let content = try? String(contentsOfFile: resolvedPath, encoding: .utf8) else {
             return ToolResult(callID: call.id, success: false, error: "Cannot read file: \(resolvedPath)")
@@ -231,9 +236,15 @@ struct SearchTextExecutor: ToolExecutor {
             return ToolResult(callID: call.id, success: false, error: "Missing parameter: query")
         }
 
-        let searchPath = call.parameters["path"].map {
-            resolvePath($0, relativeTo: context.workspacePath)
-        } ?? context.workspacePath
+        let searchPath: String
+        if let path = call.parameters["path"] {
+            guard let resolved = resolvePath(path, relativeTo: context.workspacePath) else {
+                return ToolResult(callID: call.id, success: false, error: "Path outside workspace: \(path)")
+            }
+            searchPath = resolved
+        } else {
+            searchPath = context.workspacePath
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/grep")
@@ -273,7 +284,10 @@ struct WriteFileExecutor: ToolExecutor {
             return ToolResult(callID: call.id, success: false, error: "Missing parameter: content")
         }
 
-        let resolvedPath = resolvePath(path, relativeTo: context.workspacePath)
+        guard let resolvedPath = resolvePath(path, relativeTo: context.workspacePath) else {
+            return ToolResult(callID: call.id, success: false, error: "Path outside workspace: \(path)")
+        }
+
         let fileManager = FileManager.default
 
         // Ensure parent directory exists
@@ -332,10 +346,23 @@ struct RunShellCommandExecutor: ToolExecutor {
 // MARK: - Path Resolution
 
 /// Resolve a path relative to the workspace path.
-/// If the path is already absolute, returns it as-is.
-private func resolvePath(_ path: String, relativeTo workspace: String) -> String {
+/// If the path is already absolute, validates it stays within workspace.
+/// Returns nil if the resolved path escapes the workspace (path traversal).
+private func resolvePath(_ path: String, relativeTo workspace: String) -> String? {
+    let resolved: String
     if path.hasPrefix("/") {
-        return path
+        resolved = path
+    } else {
+        resolved = (workspace as NSString).appendingPathComponent(path)
     }
-    return (workspace as NSString).appendingPathComponent(path)
+
+    // Normalize the path to resolve .. and . components
+    let normalizedResolved = URL(fileURLWithPath: resolved).standardized.path
+    let normalizedWorkspace = URL(fileURLWithPath: workspace).standardized.path
+
+    // Ensure the resolved path is within the workspace
+    guard normalizedResolved.hasPrefix(normalizedWorkspace) else {
+        return nil
+    }
+    return normalizedResolved
 }

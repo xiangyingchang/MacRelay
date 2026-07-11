@@ -90,40 +90,153 @@ extension APIProvider {
 
 // MARK: - Provider Store
 
-/// Stores configured API providers in UserDefaults.
+/// Stores configured API providers with API keys in Keychain.
+///
+/// Provider metadata (name, baseURL, model, etc.) is stored in UserDefaults.
+/// API keys are stored separately in Keychain for security.
 public final class APIProviderStore: @unchecked Sendable {
-    private let key = "configuredAPIProviders"
+    private static let userDefaultsKey = "configuredAPIProviders"
+    private static let keychainService = "com.macrelay.apikeys"
 
     public init() {}
 
+    // MARK: - Public API
+
     /// Load all configured providers.
     public func loadProviders() -> [APIProvider] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let providers = try? JSONDecoder().decode([APIProvider].self, from: data) else {
+        guard let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
+              let metadata = try? JSONDecoder().decode([ProviderMetadata].self, from: data) else {
             return []
         }
-        return providers
+
+        return metadata.compactMap { meta in
+            let apiKey = loadAPIKey(for: meta.id) ?? ""
+            return APIProvider(
+                id: meta.id,
+                name: meta.name,
+                baseURL: meta.baseURL,
+                apiKey: apiKey,
+                defaultModel: meta.defaultModel,
+                supportsStreaming: meta.supportsStreaming,
+                supportsToolCalling: meta.supportsToolCalling,
+                supportsVision: meta.supportsVision,
+                protocolType: meta.protocolType
+            )
+        }
     }
 
     /// Save a provider configuration.
     public func saveProvider(_ provider: APIProvider) {
-        var providers = loadProviders()
-        if let index = providers.firstIndex(where: { $0.id == provider.id }) {
-            providers[index] = provider
+        var metadata = loadMetadata()
+        let newMeta = ProviderMetadata(from: provider)
+
+        if let index = metadata.firstIndex(where: { $0.id == provider.id }) {
+            metadata[index] = newMeta
         } else {
-            providers.append(provider)
+            metadata.append(newMeta)
         }
-        if let data = try? JSONEncoder().encode(providers) {
-            UserDefaults.standard.set(data, forKey: key)
+
+        // Save metadata to UserDefaults
+        if let data = try? JSONEncoder().encode(metadata) {
+            UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
         }
+
+        // Save API key to Keychain
+        saveAPIKey(provider.apiKey, for: provider.id)
     }
 
     /// Delete a provider configuration.
     public func deleteProvider(id: String) {
-        var providers = loadProviders()
-        providers.removeAll { $0.id == id }
-        if let data = try? JSONEncoder().encode(providers) {
-            UserDefaults.standard.set(data, forKey: key)
+        var metadata = loadMetadata()
+        metadata.removeAll { $0.id == id }
+
+        // Remove metadata from UserDefaults
+        if let data = try? JSONEncoder().encode(metadata) {
+            UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
         }
+
+        // Remove API key from Keychain
+        deleteAPIKey(for: id)
+    }
+
+    // MARK: - Private: Metadata (UserDefaults)
+
+    /// Provider metadata without sensitive fields.
+    private struct ProviderMetadata: Codable, Equatable {
+        let id: String
+        let name: String
+        let baseURL: String
+        let defaultModel: String?
+        let supportsStreaming: Bool
+        let supportsToolCalling: Bool
+        let supportsVision: Bool
+        let protocolType: APIProvider.ProtocolType
+
+        init(from provider: APIProvider) {
+            self.id = provider.id
+            self.name = provider.name
+            self.baseURL = provider.baseURL
+            self.defaultModel = provider.defaultModel
+            self.supportsStreaming = provider.supportsStreaming
+            self.supportsToolCalling = provider.supportsToolCalling
+            self.supportsVision = provider.supportsVision
+            self.protocolType = provider.protocolType
+        }
+    }
+
+    private func loadMetadata() -> [ProviderMetadata] {
+        guard let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
+              let metadata = try? JSONDecoder().decode([ProviderMetadata].self, from: data) else {
+            return []
+        }
+        return metadata
+    }
+
+    // MARK: - Private: API Keys (Keychain)
+
+    private func loadAPIKey(for providerID: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: providerID,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func saveAPIKey(_ apiKey: String, for providerID: String) {
+        guard let data = apiKey.data(using: .utf8) else { return }
+
+        // Delete existing item
+        deleteAPIKey(for: providerID)
+
+        // Add new item
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: providerID,
+            kSecValueData as String: data
+        ]
+
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    private func deleteAPIKey(for providerID: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: providerID
+        ]
+
+        SecItemDelete(query as CFDictionary)
     }
 }

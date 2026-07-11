@@ -27,6 +27,9 @@ public final class APIAgentRuntime: AgentRuntime {
     /// Current turn ID (generated locally for API mode).
     private var currentTurnID: String?
 
+    /// Tool registry for unified tool execution and approval.
+    private let toolRegistry = ToolRegistry(policyEngine: ApprovalPolicyEngine())
+
     // MARK: - Initialization
 
     public init(provider: APIProvider) {
@@ -371,35 +374,92 @@ public final class APIAgentRuntime: AgentRuntime {
                 continue
             }
 
-            // Check if approval is needed
-            let needsApproval = checkApprovalNeeded(
-                function: functionName,
-                arguments: args,
-                approvalPolicy: approvalPolicy
+            // Convert args to [String: String] for ToolCall
+            let stringArgs = args.compactMapValues { $0 as? String }
+
+            // Emit tool call requested event (as CodexAppServerEvent for onEventReceived)
+            let requestedEvent = CodexAppServerEvent.notification(
+                method: "tool/call/requested",
+                params: [
+                    "name": functionName,
+                    "input": stringArgs
+                ]
+            )
+            onEventReceived?(requestedEvent)
+
+            // Use ToolRegistry for unified execution with approval policy
+            let toolCallObj = ToolCall(id: toolCall.id, name: functionName, parameters: stringArgs)
+            let context = ToolExecutionContext(
+                workspacePath: FileManager.default.currentDirectoryPath,
+                sessionID: currentThreadID,
+                runID: currentTurnID
             )
 
-            if needsApproval {
-                // Request approval
+            let approvalResult: ToolApprovalResult
+            do {
+                approvalResult = try await toolRegistry.executeWithApproval(
+                    call: toolCallObj,
+                    context: context
+                )
+            } catch {
+                // Emit error event
+                let errorEvent = CodexAppServerEvent.notification(
+                    method: "error",
+                    params: ["error": ["message": "Tool execution failed: \(error.localizedDescription)"]]
+                )
+                onEventReceived?(errorEvent)
+                continue
+            }
+
+            // Handle the result based on approval status
+            switch approvalResult.status {
+            case .allowed:
+                // Tool was executed - emit completed/failed event
+                if let result = approvalResult.toolResult {
+                    let event: CodexAppServerEvent
+                    if result.success {
+                        event = .notification(
+                            method: "tool/call/completed",
+                            params: [
+                                "name": functionName,
+                                "output": result.output ?? ""
+                            ]
+                        )
+                    } else {
+                        event = .notification(
+                            method: "error",
+                            params: ["error": ["message": result.error ?? "Tool failed"]]
+                        )
+                    }
+                    onEventReceived?(event)
+                }
+
+            case .pendingApproval:
+                // Tool needs approval - emit approval request
                 let requestID = Int.random(in: 1000...9999)
-                let approvalRequest = CodexAppServerEvent.serverRequest(
+                let approvalEvent = CodexAppServerEvent.serverRequest(
                     id: requestID,
                     method: "requestApproval_\(functionName)",
                     params: [
                         "command": "\(functionName)(\(args))",
-                        "reason": "Agent wants to call \(functionName)"
+                        "reason": approvalResult.evaluation.reason
                     ]
                 )
-                onEventReceived?(approvalRequest)
+                onEventReceived?(approvalEvent)
 
                 // Wait for approval (in a real implementation, this would be async)
                 // For now, we'll auto-approve in non-blocking mode
                 if approvalPolicy == "never" {
-                    // Auto-approve
                     try? resolveApproval(requestID: requestID, decision: "allow")
                 }
-            } else {
-                // Execute tool directly
-                await executeTool(function: functionName, arguments: args, toolCallId: toolCall.id)
+
+            case .denied:
+                // Tool was denied - emit error
+                let errorEvent = CodexAppServerEvent.notification(
+                    method: "error",
+                    params: ["error": ["message": approvalResult.error ?? "Tool execution denied"]]
+                )
+                onEventReceived?(errorEvent)
             }
         }
 
@@ -463,23 +523,8 @@ public final class APIAgentRuntime: AgentRuntime {
         onEventReceived?(completedEvent)
     }
 
-    private func checkApprovalNeeded(
-        function: String,
-        arguments: [String: Any],
-        approvalPolicy: String?
-    ) -> Bool {
-        // Define risk levels for different operations
-        let highRiskOperations = ["write_file", "run_shell_command", "delete_file"]
-        let mediumRiskOperations = ["edit_file"]
-
-        if highRiskOperations.contains(function) {
-            return approvalPolicy != "never"
-        }
-        if mediumRiskOperations.contains(function) {
-            return approvalPolicy == "always"
-        }
-        return false
-    }
+    // Note: Approval is now handled by ToolRegistry.executeWithApproval()
+    // which uses ApprovalPolicyEngine for unified policy evaluation.
 
     private func continueAfterApproval(requestID: Int) async {
         // Continue execution after approval
@@ -514,7 +559,10 @@ public final class APIAgentRuntime: AgentRuntime {
     // MARK: - Private: Tool Setup
 
     private func setupTools() {
-        // Define available tools for the agent
+        // Register built-in tools in the registry for unified execution
+        BuiltinTools.registerAll(in: toolRegistry)
+
+        // Define available tools for the agent (OpenAI wire format)
         availableOpenAITools = [
             OpenAIToolDefinition(function: OpenAIFunctionDefinition(
                 name: "read_file",
