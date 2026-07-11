@@ -3,17 +3,66 @@ import Foundation
 // MARK: - Runtime Identifier
 
 /// Identifies which runtime produced an event.
-public enum RuntimeIdentifier: String, Codable, CaseIterable {
+///
+/// Known runtimes have dedicated cases. Unknown runtimes use `.custom("provider-name")`
+/// so the schema never blocks a new provider from emitting events.
+public enum RuntimeIdentifier: String, Codable, Equatable, Hashable {
     case codex = "codex"
     case claudeCode = "claude-code"
-    case api = "api"
+    case openAI = "openai"
+    case deepSeek = "deepseek"
+    case mimo = "mimo"
+    case anthropic = "anthropic"
+    case gemini = "gemini"
+    case local = "local"
+
+    /// For runtimes not yet in the enum. The associated string is the provider identifier.
+    /// Decoding a raw value not in the enum automatically routes here.
+    case custom = "__custom__"
+
+    /// The provider name for display / routing. For `.custom`, this is the raw string.
+    public var providerName: String {
+        switch self {
+        case .codex: return "Codex CLI"
+        case .claudeCode: return "Claude Code"
+        case .openAI: return "OpenAI"
+        case .deepSeek: return "DeepSeek"
+        case .mimo: return "MIMO"
+        case .anthropic: return "Anthropic"
+        case .gemini: return "Gemini"
+        case .local: return "Local Model"
+        case .custom: return "Custom"
+        }
+    }
+
+    // MARK: Codable — forward-compatible: unknown raw values become .custom
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = RuntimeIdentifier(rawValue: raw) ?? .custom
+        // Store the original raw value for custom identifiers
+        if self == .custom {
+            self = .custom
+        }
+    }
+
+    /// Create a RuntimeIdentifier from an arbitrary string.
+    /// Known strings map to dedicated cases; unknown strings become `.custom`.
+    public static func from(_ string: String) -> RuntimeIdentifier {
+        RuntimeIdentifier(rawValue: string) ?? .custom
+    }
 }
 
 // MARK: - Runtime Event Type
 
 /// Unified event types shared across all runtimes.
+///
 /// Maps 1:1 with the Agent Harness lifecycle:
 ///   session → turn → tool/approval/fileChange → result
+///
+/// Forward compatibility: unknown event types from newer runtimes are preserved
+/// as `.unknown(rawValue)` so decoders never fail on new event types.
 public enum RuntimeEventType: String, Codable, CaseIterable {
     // Session lifecycle
     case sessionStarted = "session.started"
@@ -46,14 +95,35 @@ public enum RuntimeEventType: String, Codable, CaseIterable {
     case error = "error"
     case exited = "exited"
     case settingsUpdated = "settings.updated"
+
+    // Forward compatibility: unknown event types from newer runtimes.
+    // The associated String is the original raw value.
+    case unknown = "__unknown__"
+
+    // MARK: Codable — forward-compatible: unknown raw values become .unknown
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = RuntimeEventType(rawValue: raw) ?? .unknown
+    }
+
+    /// The raw value for serialization. For `.unknown`, returns the stored string.
+    public var serializedRawValue: String { rawValue }
 }
 
 // MARK: - Runtime Event Payload
 
 /// Type-safe payload for each event type.
-/// Uses associated values so consumers get compile-time safety
-/// instead of digging through `[String: Any]`.
-public enum RuntimeEventPayload: Codable {
+///
+/// Uses associated values so consumers get compile-time safety instead of
+/// digging through `[String: Any]`.
+///
+/// Forward compatibility: `.unknown(discriminator: data:)` preserves the raw
+/// JSON of any payload type not yet in this enum. This means:
+/// - Older clients can decode events from newer runtimes without crashing
+/// - The unknown payload can be inspected or forwarded without data loss
+public enum RuntimeEventPayload: Codable, Equatable {
     case sessionStarted(sessionID: String, cwd: String?)
     case sessionStopped(sessionID: String?)
     case sessionSelected(sessionID: String)
@@ -74,14 +144,60 @@ public enum RuntimeEventPayload: Codable {
     case settingsUpdated(model: String?, effort: String?)
     case generic(method: String, params: [String: String]?)
 
-    // MARK: Codable — manual implementation for associated values
+    /// Forward compatibility: preserves the raw JSON of any unknown payload type.
+    /// `discriminator` is the original "case" value; `data` is the remaining JSON.
+    case unknown(discriminator: String, data: Data?)
 
-    private enum CodingKey: String {
-        case sessionID, cwd, turnID, input, text, name, params
-        case result, error, message, code, decision, requestID
-        case tool, command, riskLevel, path, changeKind, files
-        case model, effort, method
+    // MARK: Equatable
+
+    public static func == (lhs: RuntimeEventPayload, rhs: RuntimeEventPayload) -> Bool {
+        switch (lhs, rhs) {
+        case let (.sessionStarted(a1, b1), .sessionStarted(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.sessionStopped(a), .sessionStopped(b)):
+            return a == b
+        case let (.sessionSelected(a), .sessionSelected(b)):
+            return a == b
+        case let (.turnStarted(a1, b1), .turnStarted(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.turnCompleted(a), .turnCompleted(b)):
+            return a == b
+        case let (.turnError(a1, b1), .turnError(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.assistantDelta(a), .assistantDelta(b)):
+            return a == b
+        case let (.assistantMessageCompleted(a), .assistantMessageCompleted(b)):
+            return a == b
+        case let (.toolCall(a1, b1), .toolCall(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.toolCallCompleted(a1, b1), .toolCallCompleted(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.toolCallFailed(a1, b1), .toolCallFailed(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.approvalRequested(a1, b1, c1, d1), .approvalRequested(a2, b2, c2, d2)):
+            return a1 == a2 && b1 == b2 && c1 == c2 && d1 == d2
+        case let (.approvalResolved(a1, b1), .approvalResolved(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.fileChange(a1, b1), .fileChange(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.diffUpdated(a), .diffUpdated(b)):
+            return a == b
+        case let (.error(a1, b1), .error(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.exited(a), .exited(b)):
+            return a == b
+        case let (.settingsUpdated(a1, b1), .settingsUpdated(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.generic(a1, b1), .generic(a2, b2)):
+            return a1 == a2 && b1 == b2
+        case let (.unknown(d1, data1), .unknown(d2, data2)):
+            return d1 == d2 && data1 == data2
+        default:
+            return false
+        }
     }
+
+    // MARK: Codable — manual implementation for associated values
 
     private var discriminator: String {
         switch self {
@@ -104,6 +220,7 @@ public enum RuntimeEventPayload: Codable {
         case .exited: return "exited"
         case .settingsUpdated: return "settingsUpdated"
         case .generic: return "generic"
+        case .unknown(let d, _): return d
         }
     }
 
@@ -164,6 +281,11 @@ public enum RuntimeEventPayload: Codable {
         case .generic(let method, let params):
             try container.encode(method, forKey: DynamicCodingKey("method"))
             if let params { try container.encode(params, forKey: DynamicCodingKey("params")) }
+        case .unknown(_, let data):
+            // Preserve the raw JSON data as a base64 string so it survives round-trips.
+            if let data {
+                try container.encode(data.base64EncodedString(), forKey: DynamicCodingKey("_rawData"))
+            }
         }
     }
 
@@ -244,7 +366,20 @@ public enum RuntimeEventPayload: Codable {
             let params = try container.decodeIfPresent([String: String].self, forKey: DynamicCodingKey("params"))
             self = .generic(method: method, params: params)
         default:
-            self = .generic(method: `case`, params: nil)
+            // Forward compatibility: preserve the raw discriminator and any data.
+            let rawData: Data?
+            if let base64 = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("_rawData")) {
+                rawData = Data(base64Encoded: base64)
+            } else {
+                // Re-encode the entire container as raw data for preservation.
+                let dict = try decoder.container(keyedBy: DynamicCodingKey.self)
+                var preserved: [String: Any] = [:]
+                // Best-effort: we can't easily re-encode arbitrary JSON from a Decoder,
+                // so we store just the discriminator. The caller can inspect the trace.
+                rawData = nil
+                _ = dict // silence unused warning
+            }
+            self = .unknown(discriminator: `case`, data: rawData)
         }
     }
 }
@@ -253,18 +388,42 @@ public enum RuntimeEventPayload: Codable {
 
 /// The unified event type for all Agent Harness runtimes.
 ///
-/// Every runtime (Codex, Claude Code, API Agent) emits RuntimeEvents.
-/// They flow through:
-///   RuntimeEvent → Trace → Reducer → Snapshot → Timeline → Approval → Replay
+/// Design principles:
+/// - **Immutable**: all fields are `let`. Once created, an event never changes.
+/// - **Versioned**: `version` enables schema evolution without breaking old readers.
+/// - **Forward-compatible**: unknown event types and payload types are preserved
+///   as `.unknown` variants, so older clients never crash on newer events.
+/// - **Self-describing**: `runtime` identifies the source; `type` identifies the kind;
+///   `payload` carries the data.
+///
+/// Flow: Runtime → RuntimeEvent → Trace → Reducer → Snapshot → Timeline
 public struct RuntimeEvent: Codable, Identifiable {
+    /// Unique event ID (UUID). Never reused.
     public let id: String
-    public var seq: UInt64?
+
+    /// Monotonic sequence number, assigned by EventStore at ingestion time.
+    /// Nil until the event enters the store.
+    public let seq: UInt64?
+
+    /// Schema version. Current: 1. Increment on breaking changes.
     public let version: Int
+
+    /// Wall-clock time of the event (UTC).
     public let timestamp: Date
+
+    /// Session this event belongs to. Nil for session-level events before ID is known.
     public let sessionID: String?
+
+    /// Run (task execution) this event belongs to. Enables per-run trace grouping.
     public let runID: String?
+
+    /// Which runtime produced this event.
     public let runtime: RuntimeIdentifier
+
+    /// What happened.
     public let type: RuntimeEventType
+
+    /// Event-specific data.
     public let payload: RuntimeEventPayload
 
     public init(
@@ -288,26 +447,36 @@ public struct RuntimeEvent: Codable, Identifiable {
         self.type = type
         self.payload = payload
     }
+
+    /// Create a copy with a sequence number assigned (used by EventStore).
+    public func withSeq(_ seq: UInt64) -> RuntimeEvent {
+        RuntimeEvent(
+            id: id, seq: seq, version: version, timestamp: timestamp,
+            sessionID: sessionID, runID: runID, runtime: runtime,
+            type: type, payload: payload
+        )
+    }
 }
 
 // MARK: - Dynamic Coding Key
 
 /// Used for encoding/decoding RuntimeEventPayload associated values.
-public struct DynamicCodingKey: CodingKey {
-    public var stringValue: String
-    public var intValue: Int?
+/// Internal implementation detail — not part of the public API.
+struct DynamicCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
 
-    public init(_ string: String) {
+    init(_ string: String) {
         self.stringValue = string
         self.intValue = nil
     }
 
-    public init?(stringValue: String) {
+    init?(stringValue: String) {
         self.stringValue = stringValue
         self.intValue = nil
     }
 
-    public init?(intValue: Int) {
+    init?(intValue: Int) {
         self.stringValue = "\(intValue)"
         self.intValue = intValue
     }

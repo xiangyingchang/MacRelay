@@ -104,13 +104,12 @@ public final class MacRelayService {
         if let runtimeEvent = reducer.runtimeEvent(
             from: event, runtime: runtime, sessionID: sessionID, runID: runID
         ) {
-            var evt = runtimeEvent
-            evt.seq = newestSeq
-            runtimeEvents.append(evt)
+            let seqd = runtimeEvent.withSeq(newestSeq)
+            runtimeEvents.append(seqd)
             if runtimeEvents.count > runtimeEventCapacity {
                 runtimeEvents.removeFirst(runtimeEvents.count - runtimeEventCapacity)
             }
-            return (relayEvents, evt)
+            return (relayEvents, seqd)
         }
 
         return (relayEvents, nil)
