@@ -70,10 +70,15 @@ final class MacShellViewModel: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     let continuedArchivedID = self.continuingArchivedSessionID
+                    if let index = self.runtime.sessions.firstIndex(where: { $0.sessionID == threadID }) {
+                        self.runtime.sessions[index] = SessionWorkspaceBinder.assigning(
+                            cwd: self.workspaceCWD,
+                            to: self.runtime.sessions[index]
+                        )
+                    }
                     self.bindCurrentMessages(toSession: threadID)
-                    if continuedArchivedID != nil {
-                        self.saveSessionToWorkspace(id: threadID)
-                    } else if self.shouldAutoSaveNewSessionsToWorkspace {
+                    self.persistWorkspaceSession(id: continuedArchivedID ?? threadID, cwd: self.workspaceCWD)
+                    if continuedArchivedID == nil && self.shouldAutoSaveNewSessionsToWorkspace {
                         self.saveSessionToWorkspace(id: threadID)
                     }
                 }
@@ -197,6 +202,7 @@ final class MacShellViewModel: ObservableObject {
     @Published var selectedFileID = "mac-shell"
     @Published var commandApprovalVisible = true
     @Published private var archivedSessionItems: [SessionListItem] = []
+    private var archivedSessionThreadIDs: [String: String] = [:]
     @Published private(set) var commandLog: [RelayCommandLogEntry] = [
         RelayCommandLogEntry(type: .sessionStart, detail: "session.start cwd=\(FileManager.default.currentDirectoryPath)"),
         RelayCommandLogEntry(type: .snapshotGet, detail: "snapshot.get seq=8")
@@ -260,44 +266,109 @@ final class MacShellViewModel: ObservableObject {
             .replacingOccurrences(of: "=", with: "")
     }
 
+    private static let workspaceSessionIDsPrefix = "workspaceSessionIDs."
+
+    private static func workspaceSessionIDsKey(for path: String) -> String {
+        workspaceSessionIDsPrefix + workspaceStorageComponent(for: path)
+    }
+
+    private static func decodeWorkspacePath(_ component: String) -> String? {
+        let base64 = component
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padded = base64 + String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        guard let data = Data(base64Encoded: padded),
+              let path = String(data: data, encoding: .utf8),
+              !path.isEmpty else { return nil }
+        return path
+    }
+
+    private func persistWorkspaceSession(id: String, cwd: String) {
+        guard !id.isEmpty, !cwd.isEmpty else { return }
+        let key = Self.workspaceSessionIDsKey(for: cwd)
+        var ids = (UserDefaults.standard.array(forKey: key) as? [String]).map(Set.init) ?? []
+        ids.insert(id)
+        UserDefaults.standard.set(Array(ids).sorted(), forKey: key)
+    }
+
+    private func persistedWorkspaceSessions() -> [(id: String, cwd: String)] {
+        let defaults = UserDefaults.standard
+        var records: [(id: String, cwd: String)] = []
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.workspaceSessionIDsPrefix) {
+            let component = String(key.dropFirst(Self.workspaceSessionIDsPrefix.count))
+            guard let cwd = Self.decodeWorkspacePath(component),
+                  let ids = defaults.array(forKey: key) as? [String] else { continue }
+            records.append(contentsOf: ids.map { (id: $0, cwd: cwd) })
+        }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("savedSessionIDs.") {
+            let component = String(key.dropFirst("savedSessionIDs.".count))
+            guard let cwd = Self.decodeWorkspacePath(component),
+                  let data = defaults.data(forKey: key),
+                  let ids = try? JSONDecoder().decode(Set<String>.self, from: data) else { continue }
+            records.append(contentsOf: ids.map { (id: $0, cwd: cwd) })
+        }
+        var seen = Set<String>()
+        return records.filter { seen.insert("\($0.cwd)|\($0.id)").inserted }
+    }
+
     /// Runtime sessions plus local archived transcripts.
     var allSessionItems: [SessionListItem] {
-        let runtimeItems = runtime.sessions.map { s in
+        let hiddenRuntimeIDs = Set(archivedSessionThreadIDs.values)
+        let runtimeItems = runtime.sessions
+            .filter { !hiddenRuntimeIDs.contains($0.sessionID) }
+            .map { s in
             SessionListItem(
                 id: s.sessionID,
                 title: s.displayTitle,
                 subtitle: "",
                 status: s.status ?? "idle",
-                count: 0
+                count: 0,
+                workspacePath: s.cwd
             )
         }
         let runtimeIDs = Set(runtime.sessions.map(\.sessionID))
-        let result = runtimeItems + archivedSessionItems.filter { !runtimeIDs.contains($0.id) }
+        let archivedIDs = Set(archivedSessionItems.map(\.id))
+        let catalogItems = persistedWorkspaceSessions().compactMap { record -> SessionListItem? in
+            guard !runtimeIDs.contains(record.id), !archivedIDs.contains(record.id) else { return nil }
+            let loaded = loadWorkspaceMessages(sessionID: record.id, cwd: record.cwd)
+            return SessionListItem(
+                id: record.id,
+                title: loaded.first(where: { $0.role == "User" })?.text ?? record.id,
+                subtitle: "",
+                status: "completed",
+                count: loaded.count,
+                workspacePath: record.cwd
+            )
+        }
+        let result = runtimeItems
+            + archivedSessionItems.filter { !runtimeIDs.contains($0.id) }
+            + catalogItems
         return result
+    }
+
+    private func loadWorkspaceMessages(sessionID: String, cwd: String) -> [ConversationMessage] {
+        let url = URL(fileURLWithPath: cwd)
+            .appendingPathComponent(".macrelay/sessions")
+            .appendingPathComponent(sessionID + ".json")
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONDecoder().decode([ConversationMessage].self, from: data)) ?? []
     }
 
     /// Sessions NOT saved to workspace (shown in "会话" list).
     var activeSessions: [SessionListItem] {
-        let grouping = workspaceSessionGrouper
-        return allSessionItems.filter { !grouping.isWorkspaceSession($0.id) }
+        allSessionItems.filter { $0.workspacePath?.isEmpty ?? true }
     }
 
     /// Sessions saved to workspace (shown under "空间").
     var workspaceSessions: [SessionListItem] {
-        let grouping = workspaceSessionGrouper
-        return allSessionItems.filter { grouping.isWorkspaceSession($0.id) }
+        allSessionItems.filter { !($0.workspacePath?.isEmpty ?? true) }
+    }
+
+    var workspaceSessionGroups: [WorkspaceSessionGroup] {
+        WorkspaceSessionGrouping.groups(from: workspaceSessions)
     }
 
     var displaySessions: [SessionListItem] { allSessionItems }
-
-    private var workspaceSessionGrouper: WorkspaceSessionGrouper {
-        WorkspaceSessionGrouper(
-            workspaceCWD: workspaceCWD,
-            savedSessionIDs: savedSessionIDs,
-            archivedSessionIDs: Set(archivedSessionItems.map(\.id)),
-            runtimeSessionCWDs: Dictionary(uniqueKeysWithValues: runtime.sessions.map { ($0.sessionID, $0.cwd) })
-        )
-    }
 
     @Published var messages: [ConversationMessage] = []
 
@@ -449,11 +520,19 @@ final class MacShellViewModel: ObservableObject {
         panel.message = "选择 Claude Code 的工作目录"
         panel.directoryURL = URL(fileURLWithPath: workspaceCWD)
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        // Persist the active session's messages before switching
+        saveActiveSessionMessages()
+        // Persist all other runtime sessions' messages from the cache
+        // so they survive the workspace switch and can be restored later.
+        for session in runtime.sessions where session.sessionID != activeRunID {
+            let cached = messageCache.messages(for: session.sessionID)
+            if !cached.isEmpty {
+                journal.saveStructuredMessages(sessionID: session.sessionID, messages: cached)
+            }
+        }
         workspaceCWD = url.path
         runtime.clearCurrentThread()
-        runtime.sessions.removeAll()
         archivedSessionItems = []
-        messageCache.clear()
         messages = []
         activeRunID = ""
         // Auto-load previous sessions, then start a fresh session
@@ -469,9 +548,15 @@ final class MacShellViewModel: ObservableObject {
         migrateLegacySavedSessionsIfNeeded(existingSessionIDs: archivedIDs)
         guard !archived.isEmpty else {
             archivedSessionItems = []
+            archivedSessionThreadIDs = [:]
             restoreSavedRuntimeSessions(archivedIDs: [])
             return
         }
+
+        archivedSessionThreadIDs = Dictionary(uniqueKeysWithValues: archived.compactMap { session in
+            guard let threadID = session.threadID, !threadID.isEmpty else { return nil }
+            return (session.sessionID, threadID)
+        })
 
         archivedSessionItems = archived.map { session in
             SessionListItem(
@@ -479,7 +564,8 @@ final class MacShellViewModel: ObservableObject {
                 title: session.messages.first(where: { $0.role == "User" })?.text ?? session.sessionID,
                 subtitle: "",
                 status: "completed",
-                count: session.messages.count
+                count: session.messages.count,
+                workspacePath: workspaceCWD
             )
         }
 
@@ -490,9 +576,11 @@ final class MacShellViewModel: ObservableObject {
 
         // Register archived sessions in runtime so listSessions() returns them
         // (used by iOS fetchSessions and WebSocket session.list handler).
+        // Use the app-server thread ID if available, otherwise use the session ID.
         for session in archived {
+            let idToRegister = session.threadID ?? session.sessionID
             runtime.rememberSession(
-                sessionID: session.sessionID,
+                sessionID: idToRegister,
                 cwd: workspaceCWD,
                 title: session.messages.first(where: { $0.role == "User" })?.text,
                 status: "completed"
@@ -511,8 +599,21 @@ final class MacShellViewModel: ObservableObject {
 
     /// Select an archived (disk-based) session — load its messages from the log file.
     func selectArchivedSession(sessionID: String) {
-        runtime.clearCurrentThread()
         continuingArchivedSessionID = sessionID
+        // Try to select the session in the runtime only when we know the
+        // app-server thread ID. Older archived transcripts are local-only and
+        // must not be treated as runnable thread IDs.
+        let archived = journal.loadArchivedSessions()
+        let archivedSession = archived.first(where: { $0.sessionID == sessionID })
+        if let runtimeSessionID = ArchivedSessionThreadResolver.runtimeSessionID(
+            for: archivedSession,
+            fallbackThreadID: archivedSessionThreadIDs[sessionID],
+            runtimeSessionIDs: Set(runtime.sessions.map(\.sessionID))
+        ) {
+            try? runtime.selectSession(sessionID: runtimeSessionID)
+        } else {
+            runtime.clearCurrentThread()
+        }
         // Prefer JSON format with steps, fallback to markdown
         let loaded = journal.loadArchivedMessagesWithSteps(sessionID: sessionID)
         messages = loaded.isEmpty
@@ -526,13 +627,28 @@ final class MacShellViewModel: ObservableObject {
     }
 
     /// Delete an archived session (remove from list + delete log file).
+    /// If the deleted session is the currently active one, clear the
+    /// conversation view and reset to a fresh state.
     func deleteSession(id: String) {
         var saved = savedSessionIDs
         saved.remove(id)
         savedSessionIDs = saved
-        runtime.sessions.removeAll(where: { $0.sessionID == id })
+        let runtimeThreadID = archivedSessionThreadIDs[id]
+        runtime.sessions.removeAll(where: { $0.sessionID == id || $0.sessionID == runtimeThreadID })
         archivedSessionItems.removeAll(where: { $0.id == id })
+        archivedSessionThreadIDs.removeValue(forKey: id)
         journal.deleteArchivedSession(sessionID: id)
+
+        // If the deleted session was the active one, reset the conversation view.
+        if activeRunID == id {
+            activeRunID = ""
+            messages = []
+            streamingMessageID = nil
+            streamingTurnID = nil
+            lastAssistantTextLength = 0
+            isCreatingNewSession = false
+            messageCache.clear()
+        }
         broadcastGroupedSnapshot()
     }
 
@@ -688,9 +804,26 @@ final class MacShellViewModel: ObservableObject {
     /// and show a confirmation message.
     func selectSession(id: String) {
         saveActiveSessionMessages()
-        // Archived sessions (from .macrelay/sessions/) are NOT in runtime.sessions.
-        // Runtime sessions (active or saved to workspace) ARE in runtime.sessions.
-        if archivedSessionItems.contains(where: { $0.id == id }) && !runtime.sessions.contains(where: { $0.sessionID == id }) {
+        if let record = persistedWorkspaceSessions().first(where: { $0.id == id }),
+           !runtime.sessions.contains(where: { $0.sessionID == id }) {
+            // Legacy catalog entries are local transcript IDs, not necessarily
+            // resumable backend threads. Keep their stable UI identity while
+            // letting the first new message create an internal backend thread.
+            workspaceCWD = record.cwd
+            continuingArchivedSessionID = id
+            runtime.clearCurrentThread()
+            messages = loadWorkspaceMessages(sessionID: id, cwd: record.cwd)
+            activeRunID = id
+            isCreatingNewSession = false
+            streamingMessageID = nil
+            streamingTurnID = nil
+            lastAssistantTextLength = 0
+            return
+        }
+        // Archived sessions (from .macrelay/sessions/) cannot be resumed in
+        // the app-server after a restart. Load messages and mark as archived
+        // so that the next draft starts a fresh thread with these messages.
+        if archivedSessionItems.contains(where: { $0.id == id }) {
             selectArchivedSession(sessionID: id)
             activeRunID = id
             return
@@ -944,7 +1077,7 @@ final class MacShellViewModel: ObservableObject {
         var active: [RelaySessionInfoPayload] = []
         var workspace: [RelaySessionInfoPayload] = []
         let saved = savedSessionIDs
-        for s in runtime.sessions {
+        for s in visibleRuntimeSessions {
             if saved.contains(s.sessionID) {
                 workspace.append(s)
             } else {
@@ -952,7 +1085,7 @@ final class MacShellViewModel: ObservableObject {
             }
         }
         for item in archivedSessionItems {
-            if !runtime.sessions.contains(where: { $0.sessionID == item.id }) {
+            if !visibleRuntimeSessions.contains(where: { $0.sessionID == item.id }) {
                 workspace.append(RelaySessionInfoPayload(
                     sessionID: item.id,
                     cwd: workspaceCWD,
@@ -1091,6 +1224,12 @@ final class MacShellViewModel: ObservableObject {
             // instead of the potentially stale relayService.snapshot.threadID.
             dispatcher.onGetActiveSessionID = { [weak self] in
                 self?.activeRunID
+            }
+            // session.list must use the same alias-aware list as snapshot.get.
+            // Returning runtime.listSessions() here would leak the backend thread
+            // created while continuing a legacy archived session.
+            dispatcher.onListSessions = { [weak self] in
+                self?.visibleRelaySessions() ?? []
             }
             // — no additional code between dispatcher init and wsServer —
             let wsServer = MacRelayWebSocketServer(
@@ -1417,13 +1556,31 @@ final class MacShellViewModel: ObservableObject {
 
     private func bindCurrentMessages(toSession threadID: String) {
         if let archivedID = continuingArchivedSessionID {
+            // Keep the archived session ID as the activeRunID so the user
+            // continues in the same session in the UI, even though the
+            // app-server created a new thread.
+            //
+            // The new thread ID is tracked in savedSessionIDs for runtime
+            // lookups, but activeRunID stays as archivedID so the sidebar
+            // and message persistence use the original session identity.
             var saved = savedSessionIDs
             saved.remove(archivedID)
-            saved.insert(threadID)
+            saved.insert(archivedID) // keep the original ID
             savedSessionIDs = saved
-            archivedSessionItems.removeAll(where: { $0.id == archivedID })
-            activeRunID = threadID
-            messageCache.save(messages: messages, for: threadID)
+            archivedSessionThreadIDs[archivedID] = threadID
+            runtime.sessions.removeAll(where: { $0.sessionID == threadID })
+            runtime.rememberSession(
+                sessionID: threadID,
+                cwd: workspaceCWD,
+                title: activeSession.title,
+                status: "active"
+            )
+            // Save the app-server thread ID onto the archived session so
+            // future resumes can target the real backend thread.
+            journal.logThreadID(threadID, for: archivedID)
+            // Save messages under the archived ID (the user-visible session)
+            messageCache.save(messages: messages, for: archivedID)
+            journal.saveStructuredMessages(sessionID: archivedID, messages: messages)
             continuingArchivedSessionID = nil
             return
         }
@@ -1441,14 +1598,42 @@ final class MacShellViewModel: ObservableObject {
     }
 
     private func restoreSavedRuntimeSessions(archivedIDs: Set<String>) {
-        for id in savedSessionIDs where !archivedIDs.contains(id) && !runtime.sessions.contains(where: { $0.sessionID == id }) {
+        let currentRecords = savedSessionIDs.map { (id: $0, cwd: workspaceCWD) }
+        for record in persistedWorkspaceSessions() + currentRecords
+            where !archivedIDs.contains(record.id)
+            && RestorableBackendSessionID.isValid(record.id)
+            && !runtime.sessions.contains(where: { $0.sessionID == record.id }) {
             runtime.rememberSession(
-                sessionID: id,
-                cwd: workspaceCWD,
-                title: String(id.prefix(8)),
+                sessionID: record.id,
+                cwd: record.cwd,
+                title: String(record.id.prefix(8)),
                 status: "saved"
             )
         }
+    }
+
+    private var visibleRuntimeSessions: [RelaySessionInfoPayload] {
+        AliasedRuntimeSessionFilter.visibleSessions(
+            runtime.sessions,
+            hiddenThreadIDs: Set(archivedSessionThreadIDs.values)
+        )
+    }
+
+    private func visibleRelaySessions() -> [RelaySessionInfoPayload] {
+        var sessions = visibleRuntimeSessions
+        let runtimeIDs = Set(sessions.map(\.sessionID))
+        for item in archivedSessionItems where !runtimeIDs.contains(item.id) {
+            sessions.append(RelaySessionInfoPayload(
+                sessionID: item.id,
+                cwd: workspaceCWD,
+                model: "",
+                effort: "",
+                status: "completed",
+                createdAt: nil,
+                title: item.title
+            ))
+        }
+        return sessions
     }
 
     private func record(_ type: RelayCommandType, _ detail: String) {
@@ -1471,6 +1656,16 @@ struct SessionListItem: Identifiable {
     let subtitle: String
     let status: String
     let count: Int
+    let workspacePath: String?
+
+    init(id: String, title: String, subtitle: String, status: String, count: Int, workspacePath: String? = nil) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.status = status
+        self.count = count
+        self.workspacePath = workspacePath
+    }
 }
 
 // MARK: - Agent Step Tracking
@@ -1545,6 +1740,36 @@ struct SessionTranscriptRestorer {
     }
 }
 
+struct ArchivedSessionThreadResolver {
+    static func runtimeSessionID(
+        for archivedSession: SessionJournal.ArchivedSession?,
+        fallbackThreadID: String? = nil,
+        runtimeSessionIDs: Set<String>
+    ) -> String? {
+        if let archivedSession,
+           let threadID = archivedSession.threadID,
+           !threadID.isEmpty,
+           runtimeSessionIDs.contains(threadID) {
+            return threadID
+        }
+        guard let fallbackThreadID,
+              !fallbackThreadID.isEmpty,
+              runtimeSessionIDs.contains(fallbackThreadID) else {
+            return nil
+        }
+        return fallbackThreadID
+    }
+}
+
+struct AliasedRuntimeSessionFilter {
+    static func visibleSessions(
+        _ sessions: [RelaySessionInfoPayload],
+        hiddenThreadIDs: Set<String>
+    ) -> [RelaySessionInfoPayload] {
+        sessions.filter { !hiddenThreadIDs.contains($0.sessionID) }
+    }
+}
+
 @MainActor
 struct RuntimeLifecycleBinder {
     static func bind(
@@ -1583,6 +1808,55 @@ struct WorkspaceSessionGrouper {
 
     private static func normalizedPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+}
+
+struct WorkspaceSessionGroup: Identifiable {
+    let id: String
+    let folderName: String
+    let folderPath: String
+    let sessions: [SessionListItem]
+}
+
+enum WorkspaceSessionGrouping {
+    static func groups(from sessions: [SessionListItem]) -> [WorkspaceSessionGroup] {
+        let grouped = Dictionary(grouping: sessions) { session in
+            session.workspacePath ?? ""
+        }
+        return grouped.compactMap { path, groupedSessions in
+            guard !path.isEmpty else { return nil }
+            let folderName = URL(fileURLWithPath: path).lastPathComponent
+            return WorkspaceSessionGroup(
+                id: path,
+                folderName: folderName.isEmpty ? path : folderName,
+                folderPath: path,
+                sessions: groupedSessions
+            )
+        }
+        .sorted { lhs, rhs in
+            lhs.folderName.localizedStandardCompare(rhs.folderName) == .orderedAscending
+        }
+    }
+}
+
+enum RestorableBackendSessionID {
+    static func isValid(_ sessionID: String) -> Bool {
+        UUID(uuidString: sessionID) != nil
+    }
+}
+
+enum SessionWorkspaceBinder {
+    static func assigning(cwd: String, to session: RelaySessionInfoPayload) -> RelaySessionInfoPayload {
+        guard session.cwd?.isEmpty ?? true else { return session }
+        return RelaySessionInfoPayload(
+            sessionID: session.sessionID,
+            cwd: cwd,
+            model: session.model,
+            effort: session.effort,
+            status: session.status,
+            createdAt: session.createdAt,
+            title: session.title
+        )
     }
 }
 

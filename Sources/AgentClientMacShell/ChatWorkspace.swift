@@ -137,10 +137,34 @@ struct MarkdownText: View {
 
     init(_ text: String) { self._text = text }
 
+    /// Preprocess markdown to convert single newlines to hard line breaks (two trailing spaces)
+    /// while preserving paragraph breaks (double newlines)
+    private var processedText: String {
+        var result = ""
+        var i = _text.startIndex
+        while i < _text.endIndex {
+            let next = _text.index(after: i)
+            if _text[i] == "\n" {
+                // Check if it is a paragraph break (consecutive newlines)
+                if next < _text.endIndex && _text[next] == "\n" {
+                    result.append("\n\n")
+                    i = _text.index(after: next) // Skip second newline
+                } else {
+                    result.append("  \n") // Hard line break
+                    i = next
+                }
+            } else {
+                result.append(_text[i])
+                i = next
+            }
+        }
+        return result
+    }
+
     var body: some View {
         if let attributed = try? AttributedString(
-            markdown: _text,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            markdown: processedText,
+            options: .init(interpretedSyntax: .full)
         ) {
             Text(attributed)
                 .font(.system(size: 14))

@@ -86,9 +86,35 @@ final class SessionJournal {
         writeLine("> \(event)")
     }
 
+    /// Save the app-server thread ID for the current session.
+    /// This allows resuming the session after app-server restart.
+    func logThreadID(_ threadID: String) {
+        ensureDirectories()
+        writeLine("> thread_id: \(threadID)")
+    }
+
+    /// Append or update the backend thread ID on a specific archived session.
+    /// We append a new marker rather than rewriting the whole file; the loader
+    /// keeps the last `thread_id` it sees, so the newest binding wins.
+    func logThreadID(_ threadID: String, for sessionID: String) {
+        guard !workspacePath.isEmpty else { return }
+        let path = workspacePath + "/.macrelay/sessions/" + sessionID + ".log"
+        guard fileManager.fileExists(atPath: path) else {
+            logThreadID(threadID)
+            return
+        }
+        let line = "> thread_id: \(threadID)\n"
+        if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
+            defer { try? handle.close() }
+            try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+        }
+    }
+
     /// A previous session loaded from disk.
     struct ArchivedSession {
         let sessionID: String
+        let threadID: String?
         let createdAt: Date
         let messages: [(role: String, text: String)]
     }
@@ -116,6 +142,7 @@ final class SessionJournal {
 
             // Parse creation time from "> Started at ..."
             var createdAt = Date()
+            var threadID: String?
             var messages: [(String, String)] = []
             var currentRole = ""
             var currentText = ""
@@ -124,6 +151,8 @@ final class SessionJournal {
                 if line.hasPrefix("> Started at ") {
                     let iso = String(line.dropFirst(13))
                     if let date = ISO8601DateFormatter().date(from: iso) { createdAt = date }
+                } else if line.hasPrefix("> thread_id: ") {
+                    threadID = String(line.dropFirst(13))
                 } else if line.hasPrefix("## ") {
                     if !currentRole.isEmpty && !currentText.trimmingCharacters(in: .whitespaces).isEmpty {
                         messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
@@ -138,7 +167,7 @@ final class SessionJournal {
                 messages.append((currentRole, currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
             }
 
-            sessions.append(ArchivedSession(sessionID: sessionID, createdAt: createdAt, messages: messages))
+            sessions.append(ArchivedSession(sessionID: sessionID, threadID: threadID, createdAt: createdAt, messages: messages))
         }
         return sessions
     }
@@ -204,10 +233,21 @@ final class SessionJournal {
     /// Delete an archived session log from disk.
     func deleteArchivedSession(sessionID: String) {
         guard !workspacePath.isEmpty else { return }
-        let logPath = workspacePath + "/.macrelay/sessions/" + sessionID + ".log"
+        let sessionsDir = workspacePath + "/.macrelay/sessions"
+        // Delete legacy flat files (.log, .json)
+        let logPath = sessionsDir + "/" + sessionID + ".log"
         try? fileManager.removeItem(atPath: logPath)
-        let jsonPath = workspacePath + "/.macrelay/sessions/" + sessionID + ".json"
+        let jsonPath = sessionsDir + "/" + sessionID + ".json"
         try? fileManager.removeItem(atPath: jsonPath)
+        // Delete the session directory (contains trace.jsonl etc.)
+        let dirPath = sessionsDir + "/" + sessionID
+        if fileManager.fileExists(atPath: dirPath) {
+            do {
+                try fileManager.removeItem(atPath: dirPath)
+            } catch {
+                print("[Journal] failed to delete session dir \(sessionID): \(error)")
+            }
+        }
     }
 
     /// Append a summary of today's work to memory.md.

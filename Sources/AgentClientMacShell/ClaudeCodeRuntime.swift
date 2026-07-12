@@ -72,6 +72,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
     override func clearCurrentThread() {
         pendingDraft = nil
         currentThreadID = nil
+        pendingResumeThreadID = nil
         latestTurnID = nil
         processedThreadIDs.removeAll()
         statusText = "Current thread cleared"
@@ -99,6 +100,17 @@ final class ClaudeCodeRuntime: AgentRuntime {
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = ["npx", "--yes", "claude-app-server"]
         proc.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        // Isolate from terminal Claude Code — use a dedicated config directory
+        // so the app-server creates its own sessions instead of attaching to
+        // the user's interactive Claude Code session.
+        var env = ProcessInfo.processInfo.environment
+        let isolatedConfig = URL(fileURLWithPath: cwd)
+            .appendingPathComponent(".macrelay/claude-config").path
+        try? FileManager.default.createDirectory(
+            atPath: isolatedConfig, withIntermediateDirectories: true
+        )
+        env["CLAUDE_CONFIG_DIR"] = isolatedConfig
+        proc.environment = env
         lastStderr = ""
 
         let stdinPipe = Pipe()
@@ -131,13 +143,13 @@ final class ClaudeCodeRuntime: AgentRuntime {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 self.lastStderr = trimmed
-                self.addStep(.stderr, detail: trimmed)
                 self.statusText = "stderr: \(trimmed)"
             }
         }
 
         proc.terminationHandler = { [weak self] proc in
             Task { @MainActor in
+                print("[CCRuntime] app-server EXITED code=\(proc.terminationStatus) reason=\(proc.terminationReason.rawValue) pendingDraft=\(self?.pendingDraft != nil)")
                 if self?.pendingDraft != nil {
                     let detail = self?.lastStderr.isEmpty == false ? " \(self?.lastStderr ?? "")" : ""
                     self?.failPendingDraft("Claude app-server exited before the turn could start (code \(proc.terminationStatus)).\(detail)")
@@ -207,12 +219,14 @@ final class ClaudeCodeRuntime: AgentRuntime {
             if !isInitializing { _ = try initialize() }
             print("[CCRuntime] enqueueDraft: initializing → will auto-send")
             statusText = "Initializing → will auto-send..."
+        } else if let pendingResumeThreadID {
+            // A restored session has an ID in the local list, but the app-server
+            // process may not have loaded it yet. Resume before attempting a turn.
+            print("[CCRuntime] enqueueDraft: resuming thread \(pendingResumeThreadID)")
+            try resumeThread(threadID: pendingResumeThreadID)
         } else if currentThreadID == nil {
             print("[CCRuntime] enqueueDraft: calling startThread")
             try startThread(draft: pendingDraft!)
-        } else if let pendingResumeThreadID {
-            print("[CCRuntime] enqueueDraft: resuming thread \(pendingResumeThreadID)")
-            try resumeThread(threadID: pendingResumeThreadID)
         } else {
             // Wrap in do/catch so pendingDraft is cleared on error,
             // preventing "previous turn still processing" lockout on
@@ -397,6 +411,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         guard let pending = pendingRequests.removeValue(forKey: id) else { return }
         if let error {
             statusText = "response \(id) error: \(error)"
+            print("[CCRuntime] response ERROR id=\(id) kind=\(pending.kind) error=\(error)")
             isInitializing = false
             updateLastStep(status: .failed)
             addStep(.error, detail: "\(error)", status: .failed)
@@ -491,6 +506,7 @@ final class ClaudeCodeRuntime: AgentRuntime {
         case .turnStart:
             statusText = "turn active"
             addStep(.turnStart, status: .active)
+            print("[CCRuntime] turnStart response: result=\(result ?? [:])")
             if let turnID = result?["turn_id"] as? String
                 ?? result?["id"] as? String
                 ?? (result?["turn"] as? [String: Any])?["id"] as? String {
@@ -573,7 +589,14 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         case "item/progress":
             if let detail = stepDetail(from: params) {
-                addStep(progressKind(for: detail), detail: detail, status: .completed)
+                let kind = progressKind(for: detail)
+                // item/progress is a high-frequency stream (hundreds per turn).
+                // Always replace the last step — only the latest progress matters.
+                if !currentSteps.isEmpty {
+                    currentSteps[currentSteps.count - 1] = TurnStep(kind: kind, detail: detail, status: .completed)
+                } else {
+                    addStep(kind, detail: detail, status: .completed)
+                }
             }
 
         case "error":
@@ -582,11 +605,6 @@ final class ClaudeCodeRuntime: AgentRuntime {
 
         default:
             statusText = "notification: \(method)"
-            if method.localizedCaseInsensitiveContains("tool")
-                || method.localizedCaseInsensitiveContains("function")
-                || method.localizedCaseInsensitiveContains("command") {
-                addStep(.toolCall, detail: stepDetail(from: params) ?? method, status: .completed)
-            }
         }
     }
 
@@ -829,6 +847,7 @@ private struct JSONRPCWriter {
 enum ClaudeCodeSettingsReader {
     static func readModelNames() -> [String] {
         let paths = [
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.local.json").path,
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json").path,
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json").path,
         ]
@@ -850,7 +869,18 @@ enum ClaudeCodeSettingsReader {
             }
 
             // Model defaults
-            for key in ["ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"] {
+            for key in [
+                "ANTHROPIC_DEFAULT_FABLE_MODEL",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+                "ANTHROPIC_SMALL_FAST_MODEL",
+                "ANTHROPIC_SMALL_FAST_MODEL_NAME"
+            ] {
                 if let model = env[key] as? String, !model.isEmpty, !models.contains(model) {
                     let mapped = Self.modelAlias(model)
                     if !models.contains(mapped) { models.append(mapped) }
