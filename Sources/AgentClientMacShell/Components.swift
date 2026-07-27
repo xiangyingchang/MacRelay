@@ -8,10 +8,11 @@ struct HeaderMetric: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.system(size: 10, weight: .bold))
+                .font(Theme.Typography.micro)
+                .tracking(Theme.Typography.microTracking)
                 .foregroundStyle(Theme.muted)
             Text(value)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Theme.Typography.labelSmall)
                 .foregroundStyle(Theme.fg)
                 .lineLimit(1)
         }
@@ -42,12 +43,12 @@ struct KeyValue: View {
                 .foregroundStyle(Theme.muted)
                 .frame(width: 54, alignment: .leading)
             Text(value)
-                .font(.system(size: 12, design: .monospaced))
+                .font(Theme.Typography.mono)
                 .foregroundStyle(Theme.fg)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .font(.system(size: 12))
+        .font(Theme.Typography.bodySmall)
     }
 }
 
@@ -109,6 +110,7 @@ struct IconOnlyButton: View {
         .background(background)
         .overlay(border)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
+        .pressFeedback()
     }
 
     @ViewBuilder
@@ -144,12 +146,13 @@ struct StatusPill: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .bold))
+            .font(Theme.Typography.micro)
+            .tracking(Theme.Typography.microTracking)
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(color.opacity(0.14))
-            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     var color: Color {
@@ -339,8 +342,8 @@ struct SectionLabel: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .bold))
+            .font(Theme.Typography.captionBold)
+            .tracking(Theme.Typography.captionBoldTracking)
             .foregroundStyle(Theme.muted)
-            .tracking(0.4)
     }
 }

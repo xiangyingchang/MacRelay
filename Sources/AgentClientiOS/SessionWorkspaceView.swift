@@ -45,13 +45,13 @@ private struct SessionListContent: View {
     var body: some View {
         VStack(spacing: 0) {
             // Connection status bar
-            HStack(spacing: 6) {
+           HStack(spacing: 6) {
                 Circle()
                     .fill(viewModel.heartbeatOnline ? Color.green : .orange)
                     .frame(width: 8, height: 8)
                 Text(viewModel.connectionStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(IOSTheme.Typography.caption)
+                    .foregroundStyle(IOSTheme.muted)
                 Spacer()
                 if viewModel.isConnecting {
                     ProgressView().scaleEffect(0.7)
@@ -82,18 +82,19 @@ private struct SessionListContent: View {
 
     // MARK: – Empty state
 
-    private var emptyState: some View {
+   private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "rectangle.3.group")
                 .font(.system(size: 36))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(IOSTheme.muted.opacity(0.5))
+                .symbolRenderingMode(.hierarchical)
             Text("No Sessions")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+                .font(IOSTheme.Typography.title)
+                .foregroundStyle(IOSTheme.muted)
             Text("Active sessions will appear here\nwhen connected to Mac.")
-                .font(.subheadline)
-                .foregroundStyle(.tertiary)
+                .font(IOSTheme.Typography.body)
+                .foregroundStyle(IOSTheme.muted.opacity(0.6))
                 .multilineTextAlignment(.center)
             Spacer()
         }
@@ -173,18 +174,18 @@ private struct SessionListContent: View {
     private func workspaceSection(for group: WorkspaceGroup) -> some View {
         VStack(spacing: 0) {
             // Folder header (like Mac sidebar: folder icon + name + count)
-            HStack(spacing: 6) {
+           HStack(spacing: 6) {
                 Image(systemName: "folder")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .font(IOSTheme.Typography.micro)
+                    .foregroundStyle(IOSTheme.muted)
                 Text(group.folderName)
-                    .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(.secondary)
-            .textCase(.uppercase)
-            .tracking(0.6)
+                    .font(IOSTheme.Typography.captionBold)
+                    .foregroundStyle(IOSTheme.muted)
+                    .textCase(.uppercase)
+                    .tracking(0.6)
                 Text("(\(group.sessions.count))")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.tertiary)
+                    .font(IOSTheme.Typography.micro)
+                    .foregroundStyle(IOSTheme.muted.opacity(0.6))
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -217,16 +218,16 @@ private struct SessionListContent: View {
         }
     }
 
-    private func sectionHeader(title: String, count: Int) -> some View {
+   private func sectionHeader(title: String, count: Int) -> some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.secondary)
+                .font(IOSTheme.Typography.captionBold)
+                .foregroundStyle(IOSTheme.muted)
                 .textCase(.uppercase)
                 .tracking(0.6)
             Text("(\(count))")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .font(IOSTheme.Typography.micro)
+                .foregroundStyle(IOSTheme.muted.opacity(0.6))
             Spacer()
         }
         .padding(.horizontal, 20)
@@ -242,14 +243,17 @@ private struct SessionListContent: View {
                     isCreating = true
                     selectionError = nil
                     do {
-                        guard let newSessionID = try await viewModel.startNewSession() else {
-                            selectionError = "创建新会话超时，请重试"
-                            isCreating = false
-                            return
+                        let newSessionID = try await viewModel.startNewSession()
+                        if let newSessionID {
+                            // With prompt: select the new session and navigate.
+                            try await viewModel.selectSession(sessionID: newSessionID)
+                        } else {
+                            // Without prompt: Mac defers thread creation until
+                            // the first message. Navigate to conversation view
+                            // directly — sendTurn will create the session.
+                            viewModel.conversationMessages = []
+                            viewModel.selectedSessionID = nil
                         }
-                        // No redundant refresh() — startNewSession already polled
-                        // until the session appeared. selectSession does its own refresh.
-                        try await viewModel.selectSession(sessionID: newSessionID)
                         navigationPath.append(.conversation)
                     } catch {
                         selectionError = error.localizedDescription
@@ -259,20 +263,22 @@ private struct SessionListContent: View {
             } label: {
                 if isCreating {
                     ProgressView().scaleEffect(0.8)
-                } else {
+               } else {
                     Label("新建任务", systemImage: "plus.bubble")
+                        .font(IOSTheme.Typography.labelSmall)
                 }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .disabled(isCreating)
+            .iosPressFeedback()
 
             Spacer()
 
             let total = viewModel.availableSessions.count + viewModel.workspaceSessions.count
             Text("\(total) 个")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(IOSTheme.Typography.caption)
+                .foregroundStyle(IOSTheme.muted)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -307,38 +313,38 @@ private struct SessionRowView: View {
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
 
-            // Info
+           // Info
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(session.displayTitle)
-                        .font(.system(.subheadline, design: .monospaced))
+                        .font(IOSTheme.Typography.mono)
                         .lineLimit(1)
                     if let model = session.model {
                         Text(model)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(IOSTheme.Typography.micro)
+                            .foregroundStyle(IOSTheme.muted)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.12))
+                            .background(IOSTheme.muted.opacity(0.12))
                             .clipShape(Capsule())
                     }
                 }
                 HStack(spacing: 8) {
                     if let cwd = session.cwd {
                         Label(cwd, systemImage: "folder")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(IOSTheme.Typography.micro)
+                            .foregroundStyle(IOSTheme.muted.opacity(0.6))
                             .lineLimit(1)
                     }
                     if let effort = session.effort {
                         Text("effort: \(effort)")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(IOSTheme.Typography.micro)
+                            .foregroundStyle(IOSTheme.muted.opacity(0.6))
                     }
                     if let createdAt = session.createdAt {
                         Text(createdAt, style: .relative)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(IOSTheme.Typography.micro)
+                            .foregroundStyle(IOSTheme.muted.opacity(0.6))
                     }
                 }
             }
@@ -348,8 +354,8 @@ private struct SessionRowView: View {
             // Checkmark for active session
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
-                    .font(.caption)
+                    .foregroundStyle(IOSTheme.accent)
+                    .font(IOSTheme.Typography.caption)
             }
 
             // ⋮ menu
@@ -367,7 +373,7 @@ private struct SessionRowView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(IOSTheme.muted)
                     .frame(width: 28, height: 28)
             }
             .menuStyle(.borderlessButton)
@@ -377,7 +383,8 @@ private struct SessionRowView: View {
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
-        .background(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
+        .background(isSelected ? IOSTheme.accentSoft : Color.clear)
+        .iosPressFeedback(scale: 0.98)
     }
 
     private var statusColor: Color {
@@ -400,13 +407,13 @@ private struct ConversationDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Connection status
-            HStack(spacing: 6) {
+           HStack(spacing: 6) {
                 Circle()
                     .fill(viewModel.heartbeatOnline ? Color.green : .orange)
                     .frame(width: 8, height: 8)
                 Text(viewModel.connectionStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(IOSTheme.Typography.caption)
+                    .foregroundStyle(IOSTheme.muted)
                 Spacer()
                 if viewModel.isSending {
                     ProgressView().scaleEffect(0.7)
@@ -425,15 +432,15 @@ private struct ConversationDetailView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        if viewModel.conversationMessages.isEmpty {
+                       if viewModel.conversationMessages.isEmpty {
                             VStack(spacing: 8) {
                                 Text("No messages yet.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .font(IOSTheme.Typography.body)
+                                    .foregroundStyle(IOSTheme.muted)
                                     .padding(.top, 40)
                                 Text("Send a message to start a conversation.")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
+                                    .font(IOSTheme.Typography.caption)
+                                    .foregroundStyle(IOSTheme.muted.opacity(0.6))
                             }
                             .frame(maxWidth: .infinity)
                         } else {
@@ -568,12 +575,12 @@ struct MessageBubble: View {
             if message.hasPrefix("[user]") {
                 Spacer()
                 Text(message.replacingOccurrences(of: "[user] ", with: ""))
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white)
+                    .font(IOSTheme.Typography.body)
+                    .foregroundStyle(IOSTheme.accentFg)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .background(IOSTheme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: IOSTheme.radiusMd))
                     .frame(maxWidth: 280, alignment: .trailing)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
@@ -581,23 +588,23 @@ struct MessageBubble: View {
                         if message.hasPrefix("[assistant]") {
                             Circle().fill(Color.green).frame(width: 6, height: 6)
                         } else if message.hasPrefix("[delta]") {
-                            Circle().fill(Color.blue).frame(width: 6, height: 6)
+                            Circle().fill(IOSTheme.accent).frame(width: 6, height: 6)
                         } else if message.hasPrefix("[error]") {
-                            Circle().fill(Color.red).frame(width: 6, height: 6)
+                            Circle().fill(IOSTheme.error).frame(width: 6, height: 6)
                         }
                         Text(label(for: message))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(IOSTheme.Typography.micro)
+                            .foregroundStyle(IOSTheme.muted.opacity(0.6))
                     }
                     Text(content(for: message))
-                        .font(.system(size: 14))
-                        .foregroundStyle(.primary)
+                        .font(IOSTheme.Typography.body)
+                        .foregroundStyle(IOSTheme.fg)
                         .textSelection(.enabled)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Color.secondary.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(IOSTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: IOSTheme.radiusMd))
                 .frame(maxWidth: 280, alignment: .leading)
                 Spacer()
             }
@@ -634,21 +641,22 @@ struct ComposerBar: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             TextEditor(text: $text)
-                .font(.system(size: 14))
+                .font(IOSTheme.Typography.body)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 36, maxHeight: 100)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .background(IOSTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: IOSTheme.radiusSm))
                 .disabled(isSending || !isConnected)
 
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 28))
-                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(canSend ? IOSTheme.accent : IOSTheme.muted)
             }
             .disabled(!canSend)
+            .iosPressFeedback()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

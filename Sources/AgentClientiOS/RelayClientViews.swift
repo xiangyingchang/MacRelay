@@ -81,9 +81,9 @@ public struct PairingView: View {
 
             Spacer().frame(height: 24)
 
-            Text("Point your camera at the QR code\nshown on your Mac")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+           Text("Point your camera at the QR code\nshown on your Mac")
+                .font(IOSTheme.Typography.body)
+                .foregroundStyle(IOSTheme.muted)
                 .multilineTextAlignment(.center)
 
             Spacer().frame(height: 16)
@@ -98,14 +98,14 @@ public struct PairingView: View {
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
                 Text(viewModel.connectionStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(IOSTheme.Typography.caption)
+                    .foregroundStyle(IOSTheme.muted)
             }
 
             if let error = claimError {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(IOSTheme.Typography.caption)
+                    .foregroundStyle(IOSTheme.error)
                     .padding(.top, 8)
                     .padding(.horizontal, 32)
                     .multilineTextAlignment(.center)
@@ -119,11 +119,11 @@ public struct PairingView: View {
             } label: {
                 HStack(spacing: 4) {
                     Text("Paste pairing URI")
-                        .font(.caption)
+                        .font(IOSTheme.Typography.caption)
                     Image(systemName: "chevron.right")
                         .font(.caption2)
                 }
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(IOSTheme.muted.opacity(0.6))
             }
             .padding(.bottom, 40)
         }
@@ -182,23 +182,26 @@ public struct PairingView: View {
 
     // MARK: - Connected State
 
-    private var connectedContent: some View {
+   private var connectedContent: some View {
         VStack(spacing: 0) {
             Spacer()
 
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 64))
                 .foregroundStyle(.green)
+                .symbolRenderingMode(.hierarchical)
+                .scaleEffect(1)
+                .animation(IOSTheme.Animation.spring, value: viewModel.heartbeatOnline)
 
             Spacer().frame(height: 16)
 
             Text("Connected")
-                .font(.title2.bold())
+                .font(IOSTheme.Typography.titleLarge)
 
             if !viewModel.pairingCode.isEmpty {
                 Text("Paired with Mac")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(IOSTheme.Typography.body)
+                    .foregroundStyle(IOSTheme.muted)
                     .padding(.top, 4)
             }
 
@@ -208,8 +211,10 @@ public struct PairingView: View {
                 viewModel.clearPairing()
             } label: {
                 Label("Disconnect", systemImage: "link.badge.minus")
+                    .font(IOSTheme.Typography.labelSmall)
             }
             .buttonStyle(.bordered)
+            .iosPressFeedback()
             .padding(.bottom, 40)
         }
     }
@@ -361,9 +366,9 @@ public struct SettingsView: View {
                     .onChange(of: viewModel.selectedProvider) { _, _ in
                         sendProviderUpdate()
                     }
-                    Text("Change the AI agent runtime on your Mac")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                   Text("Change the AI agent runtime on your Mac")
+                        .font(IOSTheme.Typography.caption)
+                        .foregroundStyle(IOSTheme.muted)
                 } header: {
                     Label("Agent", systemImage: "square.stack.3d.up")
                 }
@@ -373,33 +378,33 @@ public struct SettingsView: View {
                     HStack {
                         Text("Model")
                         Spacer()
-                        Text(viewModel.selectedModel.isEmpty ? "—" : viewModel.selectedModel)
-                            .foregroundStyle(.secondary)
+                        Text(viewModel.selectedModel.isEmpty ? "-" : viewModel.selectedModel)
+                            .foregroundStyle(IOSTheme.muted)
                     }
                     HStack {
                         Text("Effort")
                         Spacer()
                         Text(viewModel.selectedEffort.capitalized)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IOSTheme.muted)
                     }
                     HStack {
                         Text("Mode")
                         Spacer()
                         Text(viewModel.planModeEnabled ? "Plan" : "Act")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IOSTheme.muted)
                     }
                     HStack {
                         Text("Access")
                         Spacer()
                         Text(viewModel.permissionMode)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IOSTheme.muted)
                     }
                 } header: {
                     Label("Session Defaults", systemImage: "gearshape")
                 } footer: {
                     Text("These are set in the Session toolbar. Changing them here takes effect on next send.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(IOSTheme.Typography.caption)
+                        .foregroundStyle(IOSTheme.muted)
                 }
 
                 // MARK: Connection
@@ -412,7 +417,7 @@ public struct SettingsView: View {
                                 .fill(viewModel.heartbeatOnline ? Color.green : viewModel.currentState == .authFailed ? .red : .orange)
                                 .frame(width: 8, height: 8)
                             Text(viewModel.connectionStatus)
-                                .font(.subheadline)
+                                .font(IOSTheme.Typography.bodySmall)
                         }
                     }
                     if let lastHb = viewModel.lastHeartbeat {
@@ -420,7 +425,7 @@ public struct SettingsView: View {
                             Text("Last heartbeat")
                             Spacer()
                             Text(lastHb, style: .relative)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(IOSTheme.muted)
                         }
                     }
                 } header: {
@@ -431,8 +436,8 @@ public struct SettingsView: View {
                 if let errorCode = viewModel.lastErrorCode {
                     Section {
                         Text(errorCode)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.red)
+                            .font(IOSTheme.Typography.monoSmall)
+                            .foregroundStyle(IOSTheme.error)
                     } header: {
                         Label("Last Error", systemImage: "exclamationmark.triangle")
                     }

@@ -30,13 +30,13 @@ struct ChatWorkspace: View {
                 }
                 .onChange(of: viewModel.messages.last?.id) { _, newID in
                     guard let newID else { return }
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    withAnimation(Theme.Animation.smooth) {
                         proxy.scrollTo(newID, anchor: .bottom)
                     }
                 }
                 .onChange(of: viewModel.messages.last?.text) { _, _ in
                     guard let lastID = viewModel.messages.last?.id else { return }
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    withAnimation(Theme.Animation.smooth) {
                         proxy.scrollTo(lastID, anchor: .bottom)
                     }
                 }
@@ -70,12 +70,12 @@ struct MessageRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var userMessageContent: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            messageRoleLabel
-                .foregroundStyle(Theme.accent)
-            Text(message.text)
-                .font(.system(size: 14))
+   private var userMessageContent: some View {
+       VStack(alignment: .leading, spacing: 6) {
+           messageRoleLabel
+               .foregroundStyle(Theme.accent)
+           Text(message.text)
+                .font(Theme.Typography.body)
                 .foregroundStyle(Theme.fg)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,7 +110,8 @@ struct MessageRow: View {
 
     private var messageRoleLabel: some View {
         Text(message.role)
-            .font(.system(size: isUser ? 11 : 13, weight: .semibold))
+            .font(isUser ? Theme.Typography.captionBold : Theme.Typography.label)
+            .tracking(isUser ? Theme.Typography.captionBoldTracking : 0)
     }
 }
 
@@ -167,14 +168,14 @@ struct MarkdownText: View {
             options: .init(interpretedSyntax: .full)
         ) {
             Text(attributed)
-                .font(.system(size: 14))
+                .font(Theme.Typography.body)
                 .lineSpacing(3)
                 .foregroundStyle(Theme.fg)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(_text)
-                .font(.system(size: 14))
+                .font(Theme.Typography.body)
                 .lineSpacing(3)
                 .foregroundStyle(Theme.fg)
                 .textSelection(.enabled)
@@ -197,14 +198,14 @@ struct StepRow: View {
                     .frame(width: 15)
 
                 Text(step.title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Theme.Typography.labelSmall)
                     .foregroundStyle(Theme.fg)
                     .lineLimit(1)
 
                 Spacer(minLength: 8)
 
                 Text(statusLabel)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Theme.Typography.monoSmall)
                     .foregroundStyle(statusColor)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
@@ -214,7 +215,7 @@ struct StepRow: View {
 
             if let detail = step.detail, !detail.isEmpty {
                 Text(detail)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Theme.Typography.monoSmall)
                     .foregroundStyle(Theme.muted)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -259,25 +260,26 @@ struct MessageStepsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeOut(duration: 0.12)) {
+           Button {
+                withAnimation(Theme.Animation.hover) {
                     isExpanded.toggle()
                 }
             } label: {
                 HStack(spacing: 6) {
                     Text("Agent Process")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Theme.Typography.captionBold)
+                        .tracking(Theme.Typography.captionBoldTracking)
                         .foregroundStyle(Theme.muted)
 
                     Text("(\(progressText))")
-                        .font(.system(size: 10))
+                        .font(Theme.Typography.monoSmall)
                         .foregroundStyle(Theme.muted.opacity(0.7))
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Theme.muted)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .animation(.easeOut(duration: 0.12), value: isExpanded)
+                        .animation(Theme.Animation.hover, value: isExpanded)
 
                     Spacer()
                 }
@@ -327,17 +329,17 @@ struct CommandApprovalCard: View {
             .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 9) {
-                HStack {
+               HStack {
                     Label("Approval required", systemImage: "lock.open")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(Theme.Typography.label)
                     Spacer()
                     StatusPill(text: "Pending", tone: .warning)
                 }
                 Text(approval.reason ?? approval.method)
-                    .font(.system(size: 13))
+                    .font(Theme.Typography.bodySmall)
                     .foregroundStyle(Theme.muted)
                 Text(approval.command ?? "-")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Theme.Typography.mono)
                     .foregroundStyle(Theme.fg)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -420,11 +422,11 @@ struct Composer: View {
             HStack(spacing: 6) {
                 // Workspace picker — opens system folder picker
                 Button(action: viewModel.selectWorkspace) {
-                    HStack(spacing: 6) {
+                   HStack(spacing: 6) {
                         Image(systemName: "folder")
-                            .font(.system(size: 10))
+                            .font(.system(size: 9))
                         Text(viewModel.workspaceFolderName)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(Theme.Typography.caption)
                             .lineLimit(1)
                     }
                     .foregroundStyle(Theme.muted)
@@ -641,6 +643,7 @@ struct SendButton: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .disabled(disabled)
         .help("Send")
+        .pressFeedback()
     }
 }
 
@@ -660,9 +663,9 @@ struct SessionMenu: View {
                     onChange()
                 }
             }
-        } label: {
+       } label: {
             Text(displayTitle)
-                .font(.system(size: 11, weight: .medium))
+                .font(Theme.Typography.caption)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(Theme.bg)

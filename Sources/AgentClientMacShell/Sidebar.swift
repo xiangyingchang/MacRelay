@@ -38,8 +38,8 @@ struct Sidebar: View {
                         )
                     }
 
-                    // Workspace section — only shown when it has sessions
-                    if !viewModel.workspaceSessions.isEmpty {
+                    // Workspace section — sessions grouped by their folder.
+                    if !viewModel.workspaceSessionGroups.isEmpty {
                         CollapsibleSectionHeader(
                             title: "空间",
                             count: viewModel.workspaceSessions.count,
@@ -48,33 +48,37 @@ struct Sidebar: View {
                         .padding(.top, 4)
                         if workspaceExpanded {
                             VStack(spacing: 0) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "folder")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(Theme.muted)
-                                    Text(viewModel.workspaceFolderName)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(Theme.fg)
-                                        .lineLimit(1)
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
+                                ForEach(viewModel.workspaceSessionGroups) { group in
+                                    VStack(spacing: 0) {
+                                       HStack(spacing: 8) {
+                                           Image(systemName: "folder")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(Theme.muted)
+                                            Text(group.folderName)
+                                                .font(Theme.Typography.labelSmall)
+                                                .foregroundStyle(Theme.fg)
+                                                .lineLimit(1)
+                                           Spacer()
+                                       }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 6)
 
-                                ForEach(viewModel.workspaceSessions) { session in
-                                    SessionRow(
-                                        item: session,
-                                        isActive: session.id == viewModel.activeRunID,
-                                        isStreaming: session.id == viewModel.streamingSessionID,
-                                        action: {
-                                            viewModel.activeNav = "Sessions"
-                                            viewModel.selectSession(id: session.id)
-                                        },
-                                        onDelete: { viewModel.deleteSession(id: session.id) },
-                                        onSave: nil
-                                    )
-                                    .padding(.horizontal, 8)
-                                    .padding(.leading, 18)
+                                        ForEach(group.sessions) { session in
+                                            SessionRow(
+                                                item: session,
+                                                isActive: session.id == viewModel.activeRunID,
+                                                isStreaming: session.id == viewModel.streamingSessionID,
+                                                action: {
+                                                    viewModel.activeNav = "Sessions"
+                                                    viewModel.selectSession(id: session.id)
+                                                },
+                                                onDelete: { viewModel.deleteSession(id: session.id) },
+                                                onSave: nil
+                                            )
+                                            .padding(.horizontal, 8)
+                                            .padding(.leading, 18)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -93,6 +97,7 @@ struct Sidebar: View {
 // MARK: - New Task Button
 struct NewTaskButton: View {
     let action: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
@@ -100,20 +105,23 @@ struct NewTaskButton: View {
                 Image(systemName: "plus.circle")
                     .font(.system(size: 16))
                 Text("新建任务")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(Theme.Typography.label)
                 Spacer()
             }
-            .foregroundStyle(Theme.muted)
+            .foregroundStyle(isHovering ? Theme.accent : Theme.muted)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusSm)
-                .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .stroke(isHovering ? Theme.accent.opacity(0.5) : Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         )
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
         .contentShape(Rectangle())
+        .onHover { hovering in isHovering = hovering }
+        .animation(Theme.Animation.hover, value: isHovering)
+        .pressFeedback()
     }
 }
 
@@ -131,14 +139,14 @@ struct CollapsibleSectionHeader: View {
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(Theme.muted)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .animation(.easeOut(duration: 0.12), value: isExpanded)
+                    .animation(Theme.Animation.hover, value: isExpanded)
                 Text(title)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(Theme.Typography.captionBold)
+                    .tracking(Theme.Typography.captionBoldTracking)
                     .foregroundStyle(Theme.muted)
-                    .tracking(0.6)
                     .textCase(.uppercase)
                 Text("(\(count))")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Theme.Typography.monoSmall)
                     .foregroundStyle(Theme.muted.opacity(0.6))
                 Spacer()
             }
@@ -202,7 +210,7 @@ struct SessionRow: View {
                     if isStreaming {
                         ProgressView()
                             .progressViewStyle(.circular)
-                            .scaleEffect(0.6)
+                            .scaleEffect(0.4)
                             .frame(width: 6, height: 6)
                     } else {
                         Circle()
@@ -210,7 +218,7 @@ struct SessionRow: View {
                             .frame(width: 6, height: 6)
                     }
                     Text(item.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Theme.Typography.label)
                         .lineLimit(1)
                     Spacer()
                 }
@@ -242,15 +250,17 @@ struct SessionRow: View {
             .opacity(isHovering ? 1 : 0)
             .scaleEffect(isHovering ? 1 : 0.8, anchor: .trailing)
         }
-        .animation(.smooth(duration: 0.12), value: isHovering)
+        .animation(Theme.Animation.hover, value: isHovering)
+        .contentShape(Rectangle())
         .onHover { hovering in isHovering = hovering }
-        .animation(.easeOut(duration: 0.15), value: isHovering)
+        .animation(Theme.Animation.hover, value: isHovering)
         .background(isActive ? Theme.accent.opacity(0.12) : Color.clear)
         .overlay(
             RoundedRectangle(cornerRadius: Theme.radiusSm)
                 .stroke(isActive ? Theme.accent.opacity(0.28) : Color.clear, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm))
+        .pressFeedback(scale: 0.98)
     }
 }
 
@@ -296,7 +306,7 @@ struct SidebarFooter: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 13))
                     Text("时间线")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Theme.Typography.labelSmall)
                     Spacer()
                 }
                 .foregroundStyle(viewModel.activeNav == "Timeline" ? Theme.accent : Theme.muted)
@@ -312,7 +322,7 @@ struct SidebarFooter: View {
                     Image(systemName: "list.bullet.rectangle")
                         .font(.system(size: 13))
                     Text("运行")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Theme.Typography.labelSmall)
                     Spacer()
                 }
                 .foregroundStyle(viewModel.activeNav == "Runs" ? Theme.accent : Theme.muted)
@@ -326,7 +336,7 @@ struct SidebarFooter: View {
                     Image(systemName: "gearshape")
                         .font(.system(size: 13))
                     Text("设置")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Theme.Typography.labelSmall)
                     Spacer()
                 }
                 .foregroundStyle(Theme.muted)
@@ -365,16 +375,18 @@ struct PhonePairingPopover: View {
             // Header
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("手机配对")
-                        .font(.system(size: 13, weight: .semibold))
+                   Text("手机配对")
+                        .font(Theme.Typography.label)
                         .foregroundStyle(Theme.fg)
                     if phoneConnected {
                         Text("已连接")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(Theme.Typography.micro)
+                            .tracking(Theme.Typography.microTracking)
                             .foregroundStyle(Theme.success)
                     } else if running {
                         Text("等待手机扫码")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(Theme.Typography.micro)
+                            .tracking(Theme.Typography.microTracking)
                             .foregroundStyle(Theme.muted)
                     }
                 }
@@ -420,7 +432,8 @@ struct PhonePairingPopover: View {
                         HStack(spacing: 6) {
                             Circle().fill(Theme.success).frame(width: 6, height: 6)
                             Text("已连接")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(Theme.Typography.captionBold)
+                                .tracking(Theme.Typography.captionBoldTracking)
                                 .foregroundStyle(Theme.success)
                         }
                         DetailLine(key: "主机", value: viewModel.relayServerHost)
@@ -436,12 +449,12 @@ struct PhonePairingPopover: View {
                 // URI
                 VStack(alignment: .leading, spacing: 4) {
                     Text("配对 URI")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(Theme.Typography.micro)
+                        .tracking(Theme.Typography.microTracking)
                         .foregroundStyle(Theme.muted)
                         .textCase(.uppercase)
-                        .tracking(0.5)
                     Text(viewModel.relayPairingURI)
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(Theme.Typography.monoSmall)
                         .foregroundStyle(Theme.muted)
                         .lineLimit(2)
                         .padding(8)
@@ -462,7 +475,7 @@ struct PhonePairingPopover: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
                     }) {
                         Text(copied ? "已复制" : "复制 URI")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(Theme.Typography.caption)
                             .frame(maxWidth: .infinity)
                             .frame(height: 28)
                     }
@@ -471,7 +484,7 @@ struct PhonePairingPopover: View {
 
                     Button(action: viewModel.rotateRelayPairing) {
                         Text("刷新二维码")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(Theme.Typography.caption)
                             .frame(maxWidth: .infinity)
                             .frame(height: 28)
                     }
@@ -487,7 +500,7 @@ struct PhonePairingPopover: View {
                         .font(.system(size: 24))
                         .foregroundStyle(Theme.muted)
                     Text("中继未启动")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Theme.Typography.bodySmall)
                         .foregroundStyle(Theme.muted)
                 }
                 .padding(.vertical, 32)
@@ -512,12 +525,11 @@ struct DetailLine: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(key.uppercased())
-                .font(.system(size: 9, weight: .semibold))
+                .font(Theme.Typography.monoSmall)
                 .foregroundStyle(Theme.muted)
-                .tracking(0.4)
                 .frame(width: 32, alignment: .leading)
             Text(value)
-                .font(.system(size: 10, design: .monospaced))
+                .font(Theme.Typography.monoSmall)
                 .foregroundStyle(Theme.fg)
         }
     }
@@ -548,9 +560,10 @@ struct SettingsPopover: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
 
-            // Title
-            Text("设置")
-                .font(.system(size: 18, weight: .bold))
+           // Title
+           Text("设置")
+                .font(Theme.Typography.titleLarge)
+                .tracking(Theme.Typography.titleLargeTracking)
                 .foregroundStyle(Theme.fg)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -560,11 +573,11 @@ struct SettingsPopover: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "square.stack.3d.up")
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(Theme.muted)
                         .frame(width: 18)
                     Text("模型提供方")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(Theme.Typography.label)
                         .foregroundStyle(Theme.fg)
                     Spacer()
                 }
@@ -577,7 +590,7 @@ struct SettingsPopover: View {
                             }
                         }) {
                             Text(provider)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(Theme.Typography.caption)
                                 .foregroundStyle(agentProvider == provider ? Theme.accentFg : Theme.muted)
                                 .padding(.horizontal, 10)
                                 .frame(height: 28)
@@ -597,18 +610,18 @@ struct SettingsPopover: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "sun.max")
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(Theme.muted)
                         .frame(width: 18)
                     Text("外观")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(Theme.Typography.label)
                         .foregroundStyle(Theme.fg)
                     Spacer()
                 }
                 HStack(spacing: 0) {
                     Button(action: { if isLightTheme { toggleTheme() } }) {
                         Text("深色")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(Theme.Typography.caption)
                             .foregroundStyle(isLightTheme ? Theme.muted : Theme.accentFg)
                             .padding(.horizontal, 14)
                             .frame(height: 28)
@@ -619,7 +632,7 @@ struct SettingsPopover: View {
 
                     Button(action: { if !isLightTheme { toggleTheme() } }) {
                         Text("浅色")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(Theme.Typography.caption)
                             .foregroundStyle(isLightTheme ? Theme.accentFg : Theme.muted)
                             .padding(.horizontal, 14)
                             .frame(height: 28)

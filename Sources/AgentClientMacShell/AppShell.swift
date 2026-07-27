@@ -55,7 +55,8 @@ struct MacShellView: View {
                 action: { sidebarVisible.toggle() }
             )
         }
-        .animation(.smooth(duration: 0.18), value: sidebarVisible)
+       .animation(.smooth(duration: 0.18), value: sidebarVisible)
+        .animation(Theme.Animation.smooth, value: sidebarVisible)
         .onAppear { sidebarWidth = storedSidebarWidth }
         .background(Theme.bg)
         .preferredColorScheme(isLightTheme ? .light : .dark)
@@ -75,8 +76,8 @@ struct MacShellView: View {
                 .transition(.scale(scale: 0.96, anchor: .bottomLeading).combined(with: .opacity))
             }
         }
-        .animation(.smooth(duration: 0.15), value: showPhonePopover)
-        .animation(.smooth(duration: 0.18), value: showSettingsPopover)
+        .animation(Theme.Animation.snappy, value: showPhonePopover)
+        .animation(Theme.Animation.smooth, value: showSettingsPopover)
     }
 }
 

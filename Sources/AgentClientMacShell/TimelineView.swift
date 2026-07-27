@@ -31,12 +31,12 @@ struct TimelineView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Timeline")
-                    .font(.system(size: 13, weight: .semibold))
+               Text("Timeline")
+                    .font(Theme.Typography.label)
                     .foregroundStyle(Theme.fg)
                 Spacer()
                 Text("\(viewModel.timelineItems.count) events")
-                    .font(.system(size: 11))
+                    .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.muted)
             }
 
@@ -53,14 +53,14 @@ struct TimelineView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "clock.arrow.circlepath")
+           Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 32))
                 .foregroundStyle(Theme.muted)
             Text("No Timeline Events")
-                .font(.system(size: 13, weight: .medium))
+                .font(Theme.Typography.label)
                 .foregroundStyle(Theme.fg)
             Text("Run an agent task to see execution history")
-                .font(.system(size: 11))
+                .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.muted)
             Spacer()
         }

@@ -14,9 +14,10 @@ struct SettingsWorkspace: View {
             VStack(alignment: .leading, spacing: 18) {
                 // Header
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack {
+                   HStack {
                         Text("Settings")
-                            .font(.system(size: 24, weight: .bold))
+                            .font(Theme.Typography.display)
+                            .tracking(Theme.Typography.displayTracking)
                             .foregroundStyle(Theme.fg)
                         Spacer()
                         StatusPill(text: "Local", tone: .success)

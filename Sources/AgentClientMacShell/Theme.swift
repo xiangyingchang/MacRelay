@@ -1,7 +1,133 @@
 import SwiftUI
 
 // MARK: - MacRelay Design System
-// Reference: DESIGN.md — warm-neutral palette, teal accent
+// Reference: DESIGN.md + Apple HIG (Designing Fluid Interfaces, WWDC 2018)
+// Principles: warm-neutral palette, teal accent, physical motion, material depth
+
+// MARK: - Spacing (4px grid)
+extension Theme {
+    enum Spacing {
+        static let xxs: CGFloat = 4
+        static let xs: CGFloat = 8
+        static let sm: CGFloat = 12
+        static let md: CGFloat = 16
+        static let lg: CGFloat = 24
+        static let xl: CGFloat = 32
+    }
+}
+
+// MARK: - Typography System
+// Apple HIG: tracking is size-specific (large = negative, small = positive).
+// Leading is inversely proportional to size (tight headlines, looser body).
+extension Theme {
+    enum Typography {
+        // Display - negative tracking as size grows
+        static let displayLarge = Font.system(size: 28, weight: .bold)
+        static let displayLargeTracking: CGFloat = -0.5
+        static let display = Font.system(size: 24, weight: .bold)
+        static let displayTracking: CGFloat = -0.4
+        static let titleLarge = Font.system(size: 20, weight: .semibold)
+        static let titleLargeTracking: CGFloat = -0.2
+        static let title = Font.system(size: 17, weight: .semibold)
+        static let titleTracking: CGFloat = -0.1
+        // Body
+        static let bodyLarge = Font.system(size: 15, weight: .regular)
+        static let body = Font.system(size: 14, weight: .regular)
+        static let bodySmall = Font.system(size: 13, weight: .regular)
+        // Label / UI
+        static let label = Font.system(size: 13, weight: .semibold)
+        static let labelSmall = Font.system(size: 12, weight: .medium)
+        static let caption = Font.system(size: 11, weight: .regular)
+        static let captionTracking: CGFloat = 0.1
+        static let captionBold = Font.system(size: 11, weight: .bold)
+        static let captionBoldTracking: CGFloat = 0.4
+        static let micro = Font.system(size: 10, weight: .semibold)
+        static let microTracking: CGFloat = 0.5
+        // Monospace
+        static let mono = Font.system(size: 12, design: .monospaced)
+        static let monoSmall = Font.system(size: 10, design: .monospaced)
+        // Semantic leading
+        static let tightLeading: CGFloat = 1.05
+        static let bodyLeading: CGFloat = 1.5
+        static let denseLeading: CGFloat = 1.3
+    }
+}
+
+// MARK: - Animation Tokens (Apple spring physics)
+// damping 1.0 = critically damped (no overshoot) for default UI.
+// Add bounce (~0.8) only for momentum-driven interactions.
+extension Theme {
+    enum Animation {
+        static let smooth = SwiftUI.Animation.smooth(duration: 0.35, extraBounce: 0)
+        static let snappy = SwiftUI.Animation.smooth(duration: 0.25, extraBounce: 0)
+        static let spring = SwiftUI.Animation.spring(duration: 0.35, bounce: 0.2)
+        static let deliberate = SwiftUI.Animation.smooth(duration: 0.45, extraBounce: 0)
+        static let hover = SwiftUI.Animation.easeOut(duration: 0.12)
+    }
+}
+
+// MARK: - Press Feedback (Apple: respond on pointer-down, not release)
+extension View {
+    func pressFeedback(scale: CGFloat = 0.97) -> some View {
+        modifier(PressFeedbackModifier(scale: scale))
+    }
+
+    func hoverHighlight(active: Bool = false, hoverColor: Color? = nil) -> some View {
+        modifier(HoverHighlightModifier(active: active, hoverColor: hoverColor))
+    }
+}
+ 
+// Convenience: apply size-specific tracking to a Text view
+extension Text {
+    func tracked(_ amount: CGFloat) -> some View {
+         self.tracking(amount)
+     }
+ }
+
+private struct PressFeedbackModifier: ViewModifier {
+    let scale: CGFloat
+    @State private var isPressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPressed && !reduceMotion ? scale : 1.0)
+            .animation(Theme.Animation.snappy, value: isPressed)
+            .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, perform: {}, onPressingChanged: { pressing in
+                isPressed = pressing
+            })
+    }
+}
+
+private struct HoverHighlightModifier: ViewModifier {
+    let active: Bool
+    let hoverColor: Color?
+    @State private var isHovering = false
+    func body(content: Content) -> some View {
+        content
+            .background(
+                active
+                ? (hoverColor ?? Theme.accentSoft)
+                : (isHovering ? Theme.sidebarHover : Color.clear)
+            )
+            .animation(Theme.Animation.hover, value: isHovering)
+            .onHover { hovering in isHovering = hovering }
+    }
+}
+
+// MARK: - Scroll Edge Effect
+extension View {
+    func topScrollEdgeFade() -> some View {
+        self.overlay(alignment: .top) {
+            LinearGradient(
+                colors: [Theme.bg, Theme.bg.opacity(0)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 1)
+            .allowsHitTesting(false)
+        }
+    }
+}
 
 enum Theme {
     /// Reads current mode from UserDefaults so colors update reactively
